@@ -1,0 +1,64 @@
+name: 'LCOV Coverage Check'
+description: 'Check LCOV code coverage with optional baseline comparison, new-file thresholds, and PR comments'
+author: 'Gary Pendergast'
+
+inputs:
+  lcov-file:
+    description: 'Path to current LCOV coverage file'
+    required: true
+  lcov-base:
+    description: 'Path to baseline LCOV file. If empty, runs in summary-only mode (report, do not enforce)'
+    required: false
+    default: ''
+  base-ref:
+    description: 'Git ref for base branch (for detecting new/changed files via git diff)'
+    required: false
+    default: ''
+  head-ref:
+    description: 'Git ref for PR head'
+    required: false
+    default: 'HEAD'
+  new-file-minimum-coverage:
+    description: 'Minimum coverage percentage for new files (0-100)'
+    required: false
+    default: '80'
+  new-file-path-prefix:
+    description: 'Only enforce new-file threshold under this prefix. Empty = all paths.'
+    required: false
+    default: 'lib/'
+  changed-file-no-decrease:
+    description: 'Require that per-file coverage of modified files does not decrease vs baseline'
+    required: false
+    default: 'true'
+  github-token:
+    description: 'GitHub token for posting PR summary comment. If empty, no comment is posted.'
+    required: false
+    default: ''
+
+outputs:
+  overall-coverage:
+    description: 'Current overall coverage percentage'
+    value: ${{ steps.coverage.outputs.overall-coverage }}
+  baseline-coverage:
+    description: 'Baseline coverage percentage (empty if summary-only)'
+    value: ${{ steps.coverage.outputs.baseline-coverage }}
+  passed:
+    description: "'true' or 'false'"
+    value: ${{ steps.coverage.outputs.passed }}
+
+runs:
+  using: composite
+  steps:
+    - name: Check coverage
+      id: coverage
+      shell: bash
+      env:
+        INPUT_LCOV_FILE: ${{ inputs.lcov-file }}
+        INPUT_LCOV_BASE: ${{ inputs.lcov-base }}
+        INPUT_BASE_REF: ${{ inputs.base-ref }}
+        INPUT_HEAD_REF: ${{ inputs.head-ref }}
+        INPUT_NEW_FILE_MINIMUM_COVERAGE: ${{ inputs.new-file-minimum-coverage }}
+        INPUT_NEW_FILE_PATH_PREFIX: ${{ inputs.new-file-path-prefix }}
+        INPUT_CHANGED_FILE_NO_DECREASE: ${{ inputs.changed-file-no-decrease }}
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: "${{ github.action_path }}/scripts/check-coverage.sh"
