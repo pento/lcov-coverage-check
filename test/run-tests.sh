@@ -573,6 +573,7 @@ rm -rf "$mock_bin"
 run_test "PR comment skipped when GITHUB_EVENT_PATH is not set"
 
 output="$(
+  unset GITHUB_EVENT_PATH
   GITHUB_REPOSITORY="owner/repo" \
   INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
   INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
