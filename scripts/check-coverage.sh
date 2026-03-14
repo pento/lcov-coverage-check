@@ -122,6 +122,18 @@ format_pct() {
   awk -v v="$1" 'BEGIN { printf "%.2f", v + 0 }'
 }
 
+# extract_lcov_extensions FILE
+#   Prints unique file extensions found in SF: lines (e.g., ".dart", ".ts")
+extract_lcov_extensions() {
+  local file="$1"
+  [[ ! -s "$file" ]] && return
+  awk '/^SF:/ {
+    sf = substr($0, 4)
+    n = split(sf, parts, ".")
+    if (n > 1) print "." parts[n]
+  }' "$file" | sort -u
+}
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -209,13 +221,25 @@ else
   echo "  PASS: Coverage did not decrease (${cur_pct_fmt}% >= ${base_pct_fmt}%)"
 fi
 
+# --- Build pathspec from LCOV extensions ---
+lcov_extensions="$(extract_lcov_extensions "$INPUT_LCOV_FILE")"
+pathspec_args=()
+if [[ -n "$lcov_extensions" ]]; then
+  while IFS= read -r ext; do
+    [[ -z "$ext" ]] && continue
+    pathspec_args+=("${INPUT_PATH}*${ext}")
+  done <<< "$lcov_extensions"
+else
+  pathspec_args=("${INPUT_PATH}")
+fi
+
 # --- 2. New-file check ---
 new_file_results=""
 if [[ -n "$INPUT_BASE_REF" ]]; then
   echo ""
   echo "-- New File Coverage Check (minimum: ${INPUT_NEW_FILE_MINIMUM_COVERAGE}%) --"
 
-  new_files="$(git diff --name-only --diff-filter=A "${INPUT_BASE_REF}...${INPUT_HEAD_REF}" -- "${INPUT_PATH}*.dart" 2>/dev/null || true)"
+  new_files="$(git diff --name-only --diff-filter=A "${INPUT_BASE_REF}...${INPUT_HEAD_REF}" -- "${pathspec_args[@]}" 2>/dev/null || true)"
 
   if [[ -z "$new_files" ]]; then
     echo "  No new files detected."
@@ -273,7 +297,7 @@ if [[ "$INPUT_CHANGED_FILE_NO_DECREASE" == "true" && -n "$INPUT_BASE_REF" ]]; th
   echo ""
   echo "-- Changed File Ratchet Check --"
 
-  modified_files="$(git diff --name-only --diff-filter=M "${INPUT_BASE_REF}...${INPUT_HEAD_REF}" -- "${INPUT_PATH}*.dart" 2>/dev/null || true)"
+  modified_files="$(git diff --name-only --diff-filter=M "${INPUT_BASE_REF}...${INPUT_HEAD_REF}" -- "${pathspec_args[@]}" 2>/dev/null || true)"
 
   if [[ -z "$modified_files" ]]; then
     echo "  No modified files detected."

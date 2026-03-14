@@ -1173,6 +1173,204 @@ rm -f "$event_payload"
 rm -rf "$mock_bin"
 
 # ---------------------------------------------------------------------------
+# Test 22: Non-Dart extension works (Python .py files)
+# ---------------------------------------------------------------------------
+run_test "Non-Dart extension: .py files detected as new"
+
+tmpdir="$(setup_git_repo \
+  "lib/src/existing.py:old" \
+  "lib/src/app.py:new lib/src/utils.py:new" \
+  ""
+)"
+
+output="$(
+  cd "$tmpdir" && \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/python-project.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/python-project.lcov.info" \
+  INPUT_BASE_REF="base_ref" \
+  INPUT_HEAD_REF="head_ref" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="40" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="false" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if echo "$output" | grep -q "lib/src/app.py"; then
+  pass "output mentions .py new file (app.py)"
+else
+  fail "output missing .py new file detection"
+fi
+
+if echo "$output" | grep -q "lib/src/utils.py"; then
+  pass "output mentions .py new file (utils.py)"
+else
+  fail "output missing .py new file detection (utils.py)"
+fi
+
+cleanup_git_repo "$tmpdir"
+
+# ---------------------------------------------------------------------------
+# Test 23: Non-source files excluded (only extensions in LCOV are checked)
+# ---------------------------------------------------------------------------
+run_test "Non-source files excluded: .md not flagged when LCOV has .dart"
+
+tmpdir="$(setup_git_repo \
+  "lib/src/widget_a.dart:a" \
+  "lib/src/new_widget.dart:new lib/README.md:docs" \
+  ""
+)"
+
+output="$(
+  cd "$tmpdir" && \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/new-file.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+  INPUT_BASE_REF="base_ref" \
+  INPUT_HEAD_REF="head_ref" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="40" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="false" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if ! echo "$output" | grep -q "README.md"; then
+  pass ".md file correctly excluded from new file check"
+else
+  fail ".md file should not appear in new file check"
+fi
+
+if echo "$output" | grep -q "new_widget.dart"; then
+  pass ".dart file correctly included in new file check"
+else
+  fail ".dart file should appear in new file check"
+fi
+
+cleanup_git_repo "$tmpdir"
+
+# ---------------------------------------------------------------------------
+# Test 24: Multiple extensions — .ts and .tsx both checked
+# ---------------------------------------------------------------------------
+run_test "Multiple extensions: .ts and .tsx both detected"
+
+tmpdir="$(setup_git_repo \
+  "lib/src/old.ts:old" \
+  "lib/src/app.ts:new lib/src/Component.tsx:new" \
+  ""
+)"
+
+output="$(
+  cd "$tmpdir" && \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/multi-ext.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/multi-ext.lcov.info" \
+  INPUT_BASE_REF="base_ref" \
+  INPUT_HEAD_REF="head_ref" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="40" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="false" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if echo "$output" | grep -q "lib/src/app.ts"; then
+  pass ".ts file detected"
+else
+  fail ".ts file not detected"
+fi
+
+if echo "$output" | grep -q "lib/src/Component.tsx"; then
+  pass ".tsx file detected"
+else
+  fail ".tsx file not detected"
+fi
+
+cleanup_git_repo "$tmpdir"
+
+# ---------------------------------------------------------------------------
+# Test 25: Changed file with non-Dart extension — ratchet check works for .py
+# ---------------------------------------------------------------------------
+run_test "Changed file ratchet works for .py files"
+
+# Create a baseline with higher coverage and a current with lower coverage for app.py
+py_baseline="$(mktemp "${TMPDIR:-/tmp}/py-baseline-XXXXXX")"
+cat > "$py_baseline" <<'LCOV'
+TN:
+SF:lib/src/app.py
+DA:1,1
+DA:2,1
+DA:3,1
+DA:4,1
+LF:4
+LH:4
+end_of_record
+LCOV
+
+py_current="$(mktemp "${TMPDIR:-/tmp}/py-current-XXXXXX")"
+cat > "$py_current" <<'LCOV'
+TN:
+SF:lib/src/app.py
+DA:1,1
+DA:2,0
+DA:3,0
+DA:4,0
+LF:4
+LH:1
+end_of_record
+LCOV
+
+tmpdir="$(setup_git_repo \
+  "lib/src/app.py:old" \
+  "" \
+  "lib/src/app.py:modified"
+)"
+
+output="$(
+  cd "$tmpdir" && \
+  INPUT_LCOV_FILE="$py_current" \
+  INPUT_LCOV_BASE="$py_baseline" \
+  INPUT_BASE_REF="base_ref" \
+  INPUT_HEAD_REF="head_ref" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 1 ]]; then
+  pass "exit code is 1 (coverage decreased)"
+else
+  fail "expected exit code 1, got $exit_code"
+fi
+
+if echo "$output" | grep -q "lib/src/app.py.*coverage decreased"; then
+  pass "output reports .py file coverage decrease"
+else
+  fail "output missing .py coverage decrease message"
+fi
+
+rm -f "$py_baseline" "$py_current"
+cleanup_git_repo "$tmpdir"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""
