@@ -5,6 +5,7 @@ A reusable composite GitHub Action that parses LCOV coverage files, reports cove
 ## Features
 
 - **Automatic baseline management**: Stores coverage on main-branch pushes, auto-retrieves it on PRs
+- **Language-agnostic**: Works with any language that produces LCOV data (Dart, Go, Python, TypeScript, C/C++, Ruby, etc.) — file extensions are derived automatically from the LCOV data
 - **Summary-only mode**: Report overall and per-file coverage without enforcing any rules
 - **Overall ratchet check**: Ensure overall coverage does not decrease compared to a baseline
 - **New-file threshold**: Require new files to meet a minimum coverage percentage
@@ -122,8 +123,8 @@ Baseline artifacts follow your repository's default artifact retention policy. Y
 ### Comparison mode (baseline auto-retrieved)
 
 1. **Overall ratchet**: Current overall coverage must be >= baseline overall coverage
-2. **New-file check**: New `.dart` files (detected via `git diff --diff-filter=A`) must meet the `new-file-minimum-coverage` threshold. Files with no instrumentable lines (`LF:0`) pass automatically. Files not found in the LCOV data are treated as 0% coverage.
-3. **Changed-file ratchet**: If `changed-file-no-decrease` is `true`, modified `.dart` files must not have decreased per-file coverage. Files not present in the baseline LCOV data are skipped.
+2. **New-file check**: New source files (filtered to file types found in the LCOV data, detected via `git diff --diff-filter=A`) must meet the `new-file-minimum-coverage` threshold. Files with no instrumentable lines (`LF:0`) pass automatically. Files not found in the LCOV data are treated as 0% coverage.
+3. **Changed-file ratchet**: If `changed-file-no-decrease` is `true`, modified source files (filtered to file types found in the LCOV data) must not have decreased per-file coverage. Files not present in the baseline LCOV data are skipped.
 
 ### PR comments
 
