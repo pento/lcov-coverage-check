@@ -24,3 +24,46 @@ jobs:
         uses: ./
         with:
           lcov-file: test/fixtures/current.lcov.info
+
+  event-payload:
+    name: Event payload test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: GITHUB_EVENT_PATH file exists
+        run: |
+          if [[ ! -f "$GITHUB_EVENT_PATH" ]]; then
+            echo "FAIL: GITHUB_EVENT_PATH ($GITHUB_EVENT_PATH) does not exist"
+            exit 1
+          fi
+          echo "PASS: GITHUB_EVENT_PATH exists at $GITHUB_EVENT_PATH"
+      - name: Event payload contains PR number on pull_request events
+        if: github.event_name == 'pull_request'
+        run: |
+          pr_number="$(jq -r '.pull_request.number // empty' "$GITHUB_EVENT_PATH")"
+          if [[ -z "$pr_number" ]]; then
+            echo "FAIL: pull_request.number not found in event payload"
+            jq . "$GITHUB_EVENT_PATH"
+            exit 1
+          fi
+          echo "PASS: pull_request.number = $pr_number"
+      - name: Event payload contains .number on pull_request events
+        if: github.event_name == 'pull_request'
+        run: |
+          number="$(jq -r '.number // empty' "$GITHUB_EVENT_PATH")"
+          if [[ -z "$number" ]]; then
+            echo "FAIL: .number not found in event payload"
+            exit 1
+          fi
+          echo "PASS: .number = $number"
+      - name: PR number extraction matches github.event.number
+        if: github.event_name == 'pull_request'
+        env:
+          EXPECTED_PR_NUMBER: ${{ github.event.number }}
+        run: |
+          extracted="$(jq -r '.pull_request.number // .number // empty' "$GITHUB_EVENT_PATH")"
+          if [[ "$extracted" != "$EXPECTED_PR_NUMBER" ]]; then
+            echo "FAIL: extracted '$extracted' != expected '$EXPECTED_PR_NUMBER'"
+            exit 1
+          fi
+          echo "PASS: extracted PR number ($extracted) matches github.event.number"
