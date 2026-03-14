@@ -21,7 +21,7 @@ set -euo pipefail
 #   GITHUB_STEP_SUMMARY  - File to write markdown summary
 #   GITHUB_OUTPUT         - File to write outputs
 #   GITHUB_REPOSITORY     - owner/repo
-#   GITHUB_EVENT_NUMBER   - PR number (from pull_request event)
+#   GITHUB_EVENT_PATH     - Path to event payload JSON (set by Actions)
 ###############################################################################
 
 # ---------------------------------------------------------------------------
@@ -391,7 +391,13 @@ fi
 append_summary "$(echo -e "$summary_md")"
 
 # --- 5. Post PR comment ---
-if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_EVENT_NUMBER:-}" ]]; then
+# Extract PR number from event payload (works for pull_request and issue_comment events)
+pr_number=""
+if [[ -n "${GITHUB_EVENT_PATH:-}" && -f "${GITHUB_EVENT_PATH:-}" ]]; then
+  pr_number="$(jq -r '.pull_request.number // .number // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)"
+fi
+
+if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number" ]]; then
   echo ""
   echo "-- Posting PR Comment --"
 
@@ -403,7 +409,7 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_EV
   existing_comment_id="$(
     curl -s -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
       -H "Accept: application/vnd.github+json" \
-      "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${GITHUB_EVENT_NUMBER}/comments?per_page=100" \
+      "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments?per_page=100" \
     | jq -r ".[] | select(.body | startswith(\"${comment_marker}\")) | .id" \
     | head -1 || true
   )"
@@ -421,7 +427,7 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "${GITHUB_EV
     curl -s -X POST \
       -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
       -H "Accept: application/vnd.github+json" \
-      "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${GITHUB_EVENT_NUMBER}/comments" \
+      "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" \
       -d "{\"body\": ${comment_body_json}}" > /dev/null
     echo "  Created new PR comment"
   fi
