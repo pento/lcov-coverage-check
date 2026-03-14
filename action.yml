@@ -46,6 +46,10 @@ outputs:
     description: "'true' or 'false'"
     value: ${{ steps.coverage.outputs.passed }}
 
+branding:
+  icon: 'shield'
+  color: 'green'
+
 runs:
   using: composite
   steps:
