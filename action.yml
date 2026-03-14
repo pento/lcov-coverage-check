@@ -5,25 +5,14 @@ author: 'Gary Pendergast'
 inputs:
   lcov-file:
     description: 'Path to current LCOV coverage file'
-    required: true
-  lcov-base:
-    description: 'Path to baseline LCOV file. If empty, runs in summary-only mode (report, do not enforce)'
     required: false
-    default: ''
-  base-ref:
-    description: 'Git ref for base branch (for detecting new/changed files via git diff)'
-    required: false
-    default: ''
-  head-ref:
-    description: 'Git ref for PR head'
-    required: false
-    default: 'HEAD'
+    default: 'coverage/lcov.info'
   new-file-minimum-coverage:
     description: 'Minimum coverage percentage for new files (0-100)'
     required: false
     default: '80'
-  new-file-path-prefix:
-    description: 'Only enforce new-file threshold under this prefix. Empty = all paths.'
+  path:
+    description: 'Only enforce file-level checks under this path prefix. Empty = all paths.'
     required: false
     default: 'lib/'
   changed-file-no-decrease:
@@ -31,7 +20,7 @@ inputs:
     required: false
     default: 'true'
   github-token:
-    description: 'GitHub token for posting PR summary comment. If empty, no comment is posted.'
+    description: 'GitHub token for PR comments and artifact management. If empty, no comments or artifacts.'
     required: false
     default: ''
 
@@ -45,6 +34,9 @@ outputs:
   passed:
     description: "'true' or 'false'"
     value: ${{ steps.coverage.outputs.passed }}
+  baseline-artifact-downloaded:
+    description: "'true' if baseline was auto-retrieved from a previous run"
+    value: ${{ steps.retrieve-baseline.outputs.downloaded }}
 
 branding:
   icon: 'shield'
@@ -53,16 +45,40 @@ branding:
 runs:
   using: composite
   steps:
+    - name: Retrieve baseline artifact
+      id: retrieve-baseline
+      if: inputs.github-token != ''
+      shell: bash
+      env:
+        INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: "${{ github.action_path }}/scripts/retrieve-baseline.sh"
+
     - name: Check coverage
       id: coverage
       shell: bash
       env:
         INPUT_LCOV_FILE: ${{ inputs.lcov-file }}
-        INPUT_LCOV_BASE: ${{ inputs.lcov-base }}
-        INPUT_BASE_REF: ${{ inputs.base-ref }}
-        INPUT_HEAD_REF: ${{ inputs.head-ref }}
+        INPUT_LCOV_BASE: ${{ steps.retrieve-baseline.outputs.baseline-path }}
+        INPUT_BASE_REF: ${{ steps.retrieve-baseline.outputs.base-ref }}
+        INPUT_HEAD_REF: ${{ steps.retrieve-baseline.outputs.head-ref || 'HEAD' }}
         INPUT_NEW_FILE_MINIMUM_COVERAGE: ${{ inputs.new-file-minimum-coverage }}
-        INPUT_NEW_FILE_PATH_PREFIX: ${{ inputs.new-file-path-prefix }}
+        INPUT_PATH: ${{ inputs.path }}
         INPUT_CHANGED_FILE_NO_DECREASE: ${{ inputs.changed-file-no-decrease }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
       run: "${{ github.action_path }}/scripts/check-coverage.sh"
+
+    - name: Store baseline artifact
+      if: ${{ !cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: lcov-baseline
+        path: ${{ inputs.lcov-file }}
+        overwrite: true
+
+    - name: Store PR coverage artifact
+      if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: lcov-coverage
+        path: ${{ inputs.lcov-file }}
+        overwrite: true

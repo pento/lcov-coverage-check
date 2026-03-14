@@ -13,7 +13,7 @@ set -euo pipefail
 #   INPUT_BASE_REF                  - Git ref for base branch (optional)
 #   INPUT_HEAD_REF                  - Git ref for PR head (default: HEAD)
 #   INPUT_NEW_FILE_MINIMUM_COVERAGE - Min coverage % for new files (default: 80)
-#   INPUT_NEW_FILE_PATH_PREFIX      - Only enforce under this prefix (default: lib/)
+#   INPUT_PATH                      - Only enforce under this prefix (default: lib/)
 #   INPUT_CHANGED_FILE_NO_DECREASE  - Require no per-file decrease (default: true)
 #   INPUT_GITHUB_TOKEN              - Token for PR comments (optional)
 #
@@ -32,7 +32,7 @@ INPUT_LCOV_BASE="${INPUT_LCOV_BASE:-}"
 INPUT_BASE_REF="${INPUT_BASE_REF:-}"
 INPUT_HEAD_REF="${INPUT_HEAD_REF:-HEAD}"
 INPUT_NEW_FILE_MINIMUM_COVERAGE="${INPUT_NEW_FILE_MINIMUM_COVERAGE:-80}"
-INPUT_NEW_FILE_PATH_PREFIX="${INPUT_NEW_FILE_PATH_PREFIX:-lib/}"
+INPUT_PATH="${INPUT_PATH:-lib/}"
 INPUT_CHANGED_FILE_NO_DECREASE="${INPUT_CHANGED_FILE_NO_DECREASE:-true}"
 INPUT_GITHUB_TOKEN="${INPUT_GITHUB_TOKEN:-}"
 
@@ -215,16 +215,7 @@ if [[ -n "$INPUT_BASE_REF" ]]; then
   echo ""
   echo "-- New File Coverage Check (minimum: ${INPUT_NEW_FILE_MINIMUM_COVERAGE}%) --"
 
-  base_ref="$INPUT_BASE_REF"
-  head_ref="$INPUT_HEAD_REF"
-  prefix="$INPUT_NEW_FILE_PATH_PREFIX"
-
-  # Build the git diff command for new files
-  if [[ -n "$prefix" ]]; then
-    new_files="$(git diff --name-only --diff-filter=A "${base_ref}...${head_ref}" -- "${prefix}*.dart" 2>/dev/null || true)"
-  else
-    new_files="$(git diff --name-only --diff-filter=A "${base_ref}...${head_ref}" -- '*.dart' 2>/dev/null || true)"
-  fi
+  new_files="$(git diff --name-only --diff-filter=A "${INPUT_BASE_REF}...${INPUT_HEAD_REF}" -- "${INPUT_PATH}*.dart" 2>/dev/null || true)"
 
   if [[ -z "$new_files" ]]; then
     echo "  No new files detected."
@@ -282,15 +273,7 @@ if [[ "$INPUT_CHANGED_FILE_NO_DECREASE" == "true" && -n "$INPUT_BASE_REF" ]]; th
   echo ""
   echo "-- Changed File Ratchet Check --"
 
-  base_ref="$INPUT_BASE_REF"
-  head_ref="$INPUT_HEAD_REF"
-  prefix="$INPUT_NEW_FILE_PATH_PREFIX"
-
-  if [[ -n "$prefix" ]]; then
-    modified_files="$(git diff --name-only --diff-filter=M "${base_ref}...${head_ref}" -- "${prefix}*.dart" 2>/dev/null || true)"
-  else
-    modified_files="$(git diff --name-only --diff-filter=M "${base_ref}...${head_ref}" -- '*.dart' 2>/dev/null || true)"
-  fi
+  modified_files="$(git diff --name-only --diff-filter=M "${INPUT_BASE_REF}...${INPUT_HEAD_REF}" -- "${INPUT_PATH}*.dart" 2>/dev/null || true)"
 
   if [[ -z "$modified_files" ]]; then
     echo "  No modified files detected."
@@ -409,7 +392,7 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number"
   existing_comment_id="$(
     curl -s -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
       -H "Accept: application/vnd.github+json" \
-      "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments?per_page=100" \
+      "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments?per_page=100" \
     | jq -r ".[] | select(.body | startswith(\"${comment_marker}\")) | .id" \
     | head -1 || true
   )"
@@ -419,7 +402,7 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number"
     curl -s -X PATCH \
       -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
       -H "Accept: application/vnd.github+json" \
-      "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/comments/${existing_comment_id}" \
+      "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/comments/${existing_comment_id}" \
       -d "{\"body\": ${comment_body_json}}" > /dev/null
     echo "  Updated existing PR comment (ID: ${existing_comment_id})"
   else
@@ -427,7 +410,7 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number"
     curl -s -X POST \
       -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
       -H "Accept: application/vnd.github+json" \
-      "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" \
+      "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" \
       -d "{\"body\": ${comment_body_json}}" > /dev/null
     echo "  Created new PR comment"
   fi
