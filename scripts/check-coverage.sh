@@ -15,6 +15,7 @@ set -euo pipefail
 #   INPUT_NEW_FILE_MINIMUM_COVERAGE - Min coverage % for new files (default: 80)
 #   INPUT_PATH                      - Only enforce under this prefix (default: lib/)
 #   INPUT_CHANGED_FILE_NO_DECREASE  - Require no per-file decrease (default: true)
+#   INPUT_IGNORE_PATTERNS           - Newline-separated glob patterns to exclude (optional)
 #   INPUT_GITHUB_TOKEN              - Token for PR comments (optional)
 #
 # GitHub Actions environment:
@@ -34,6 +35,7 @@ INPUT_HEAD_REF="${INPUT_HEAD_REF:-HEAD}"
 INPUT_NEW_FILE_MINIMUM_COVERAGE="${INPUT_NEW_FILE_MINIMUM_COVERAGE:-80}"
 INPUT_PATH="${INPUT_PATH:-lib/}"
 INPUT_CHANGED_FILE_NO_DECREASE="${INPUT_CHANGED_FILE_NO_DECREASE:-true}"
+INPUT_IGNORE_PATTERNS="${INPUT_IGNORE_PATTERNS:-}"
 INPUT_GITHUB_TOKEN="${INPUT_GITHUB_TOKEN:-}"
 
 # ---------------------------------------------------------------------------
@@ -122,6 +124,53 @@ format_pct() {
   awk -v v="$1" 'BEGIN { printf "%.2f", v + 0 }'
 }
 
+# should_ignore_file PATH PATTERNS
+#   Returns 0 (true) if PATH matches any of the newline-separated glob patterns.
+should_ignore_file() {
+  local path="$1" patterns="$2"
+  [[ -z "$patterns" ]] && return 1
+  local pattern
+  while IFS= read -r pattern; do
+    [[ -z "$pattern" ]] && continue
+    # shellcheck disable=SC2254
+    if [[ "$path" == $pattern ]]; then
+      return 0
+    fi
+  done <<< "$patterns"
+  return 1
+}
+
+# filter_lcov_file FILE PATTERNS
+#   Creates a filtered copy of an LCOV file, excluding records whose SF: path
+#   matches any ignore pattern. Prints the path to the filtered file.
+#   If no patterns or the file is empty/missing, prints the original path.
+filter_lcov_file() {
+  local file="$1" patterns="$2"
+  if [[ -z "$patterns" || ! -s "$file" ]]; then
+    echo "$file"
+    return
+  fi
+  local filtered
+  filtered="$(mktemp "${TMPDIR:-/tmp}/lcov-filtered-XXXXXX")"
+  local skip=false
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    if [[ "$line" == SF:* ]]; then
+      if should_ignore_file "${line#SF:}" "$patterns"; then
+        skip=true
+      else
+        skip=false
+      fi
+    fi
+    if [[ "$line" == "end_of_record" && "$skip" == true ]]; then
+      skip=false
+      continue
+    fi
+    [[ "$skip" == true ]] && continue
+    echo "$line" >> "$filtered"
+  done < "$file"
+  echo "$filtered"
+}
+
 # extract_lcov_extensions FILE
 #   Prints unique file extensions found in SF: lines (e.g., ".dart", ".ts")
 extract_lcov_extensions() {
@@ -140,6 +189,16 @@ extract_lcov_extensions() {
 
 failed=false
 failure_messages=()
+
+# --- Filter LCOV files by ignore patterns ---
+if [[ -n "$INPUT_IGNORE_PATTERNS" ]]; then
+  echo "== Ignore Patterns =="
+  while IFS= read -r _pat; do
+    [[ -n "$_pat" ]] && echo "  - ${_pat}"
+  done <<< "$INPUT_IGNORE_PATTERNS"
+  echo ""
+  INPUT_LCOV_FILE="$(filter_lcov_file "$INPUT_LCOV_FILE" "$INPUT_IGNORE_PATTERNS")"
+fi
 
 # Parse current coverage
 read -r cur_hit cur_found cur_pct <<< "$(parse_lcov_overall "$INPUT_LCOV_FILE")"
@@ -197,6 +256,11 @@ fi
 echo ""
 echo "== Comparison Mode =="
 
+# Filter baseline LCOV by ignore patterns
+if [[ -n "$INPUT_IGNORE_PATTERNS" ]]; then
+  INPUT_LCOV_BASE="$(filter_lcov_file "$INPUT_LCOV_BASE" "$INPUT_IGNORE_PATTERNS")"
+fi
+
 # Parse baseline
 read -r base_hit base_found base_pct <<< "$(parse_lcov_overall "$INPUT_LCOV_BASE")"
 base_pct_fmt="$(format_pct "$base_pct")"
@@ -246,6 +310,13 @@ if [[ -n "$INPUT_BASE_REF" ]]; then
   else
     while IFS= read -r nf; do
       [[ -z "$nf" ]] && continue
+
+      # Skip files matching ignore patterns
+      if should_ignore_file "$nf" "$INPUT_IGNORE_PATTERNS"; then
+        echo "  SKIP: ${nf} — matches ignore pattern"
+        new_file_results+="| \`${nf}\` | — | — | SKIP (ignored) |\n"
+        continue
+      fi
 
       # Look up file in current LCOV per-file data
       nf_hit=""
@@ -304,6 +375,13 @@ if [[ "$INPUT_CHANGED_FILE_NO_DECREASE" == "true" && -n "$INPUT_BASE_REF" ]]; th
   else
     while IFS= read -r mf; do
       [[ -z "$mf" ]] && continue
+
+      # Skip files matching ignore patterns
+      if should_ignore_file "$mf" "$INPUT_IGNORE_PATTERNS"; then
+        echo "  SKIP: ${mf} — matches ignore pattern"
+        changed_file_results+="| \`${mf}\` | — | — | SKIP (ignored) |\n"
+        continue
+      fi
 
       # Look up in baseline
       mf_base_hit=""
