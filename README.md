@@ -30,6 +30,8 @@ A reusable composite GitHub Action that parses LCOV coverage files, reports cove
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+> **Note**: When using `github-token`, your workflow needs `actions: read` permission. See [Token permissions](#token-permissions).
+
 - **On main push**: summary report + stores LCOV as `lcov-baseline` artifact
 - **On PR**: auto-retrieves baseline, auto-detects git refs, runs full comparison, posts PR comment, stores `lcov-coverage` artifact
 
@@ -56,6 +58,10 @@ on:
 jobs:
   coverage:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
