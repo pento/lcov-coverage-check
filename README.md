@@ -161,6 +161,10 @@ Common examples:
 
 When `github-token` is provided and the action runs in a pull request context, a markdown comment is posted (or updated) on the PR. The comment is identified by a hidden HTML marker so it gets updated on subsequent pushes rather than creating duplicate comments.
 
+### Shallow clones and fetch-depth
+
+For new/modified file detection, the action needs access to both the base and head commits. It will automatically attempt to fetch them from the remote, but if your checkout uses a very restrictive configuration (e.g., no remote access), you may need `fetch-depth: 0` in your `actions/checkout` step. If the refs cannot be fetched or resolved, a `::warning::` annotation is emitted and the action continues without file-level checks rather than failing.
+
 ## Edge cases
 
 - **Empty or missing LCOV files**: Treated as 0% coverage (not an error)

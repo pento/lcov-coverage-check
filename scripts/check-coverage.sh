@@ -297,13 +297,25 @@ else
   pathspec_args=("${INPUT_PATH}")
 fi
 
+# --- Ensure base/head refs are available (shallow clones may not have them) ---
+if [[ -n "$INPUT_BASE_REF" ]]; then
+  refs_to_fetch=("$INPUT_BASE_REF")
+  if [[ -n "${INPUT_HEAD_REF:-}" && "$INPUT_HEAD_REF" != "HEAD" ]]; then
+    refs_to_fetch+=("$INPUT_HEAD_REF")
+  fi
+  git fetch --depth=1 origin "${refs_to_fetch[@]}" 2>/dev/null || true
+fi
+
 # --- 2. New-file check ---
 new_file_results=""
 if [[ -n "$INPUT_BASE_REF" ]]; then
   echo ""
   echo "-- New File Coverage Check (minimum: ${INPUT_NEW_FILE_MINIMUM_COVERAGE}%) --"
 
-  new_files="$(git diff --name-only --diff-filter=A "${INPUT_BASE_REF}...${INPUT_HEAD_REF}" -- "${pathspec_args[@]}" 2>/dev/null || true)"
+  new_files="$(git diff --name-only --diff-filter=A "${INPUT_BASE_REF}" "${INPUT_HEAD_REF}" -- "${pathspec_args[@]}" 2>&1)" || {
+    echo "::warning::Failed to detect new files via git diff. Ensure the repository is cloned with sufficient history (fetch-depth: 0 in actions/checkout) or that the base/head refs are accessible."
+    new_files=""
+  }
 
   if [[ -z "$new_files" ]]; then
     echo "  No new files detected."
@@ -368,7 +380,10 @@ if [[ "$INPUT_CHANGED_FILE_NO_DECREASE" == "true" && -n "$INPUT_BASE_REF" ]]; th
   echo ""
   echo "-- Changed File Ratchet Check --"
 
-  modified_files="$(git diff --name-only --diff-filter=M "${INPUT_BASE_REF}...${INPUT_HEAD_REF}" -- "${pathspec_args[@]}" 2>/dev/null || true)"
+  modified_files="$(git diff --name-only --diff-filter=M "${INPUT_BASE_REF}" "${INPUT_HEAD_REF}" -- "${pathspec_args[@]}" 2>&1)" || {
+    echo "::warning::Failed to detect modified files via git diff. Ensure the repository is cloned with sufficient history (fetch-depth: 0 in actions/checkout) or that the base/head refs are accessible."
+    modified_files=""
+  }
 
   if [[ -z "$modified_files" ]]; then
     echo "  No modified files detected."
