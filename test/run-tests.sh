@@ -737,7 +737,7 @@ for ((i=0; i<${#args[@]}; i++)); do
 done
 
 case $count in
-  1) echo '{"workflow_id": 12345}' ;;
+  1) printf '%s\n%s' '{"workflow_id": 12345}' '200' ;;
   2) echo '{"default_branch": "main"}' ;;
   3) echo '{"workflow_runs": [{"id": 67890}]}' ;;
   4) echo '{"artifacts": [{"name": "lcov-baseline", "expired": false, "archive_download_url": "https://example.com/artifact.zip"}]}' ;;
@@ -816,7 +816,7 @@ count=$((count + 1))
 echo "$count" > "$counter_file"
 
 case $count in
-  1) echo '{"workflow_id": 12345}' ;;
+  1) printf '%s\n%s' '{"workflow_id": 12345}' '200' ;;
   2) echo '{"default_branch": "main"}' ;;
   3) echo '{"workflow_runs": []}' ;;
 esac
@@ -868,7 +868,7 @@ count=$((count + 1))
 echo "$count" > "$counter_file"
 
 case $count in
-  1) echo '{"workflow_id": 12345}' ;;
+  1) printf '%s\n%s' '{"workflow_id": 12345}' '200' ;;
   2) echo '{"default_branch": "main"}' ;;
   3) echo '{"workflow_runs": [{"id": 67890}]}' ;;
   4) echo '{"artifacts": []}' ;;
@@ -983,7 +983,7 @@ for ((i=0; i<${#args[@]}; i++)); do
 done
 
 case $count in
-  1) echo '{"workflow_id": 12345}' ;;
+  1) printf '%s\n%s' '{"workflow_id": 12345}' '200' ;;
   2) echo '{"default_branch": "main"}' ;;
   3) echo '{"workflow_runs": [{"id": 67890}]}' ;;
   4) echo '{"artifacts": [{"name": "lcov-baseline", "expired": false, "archive_download_url": "https://example.com/artifact.zip"}]}' ;;
@@ -1065,7 +1065,7 @@ for ((i=0; i<${#args[@]}; i++)); do
 done
 
 case $count in
-  1) echo '{"workflow_id": 12345}' ;;
+  1) printf '%s\n%s' '{"workflow_id": 12345}' '200' ;;
   2) echo '{"default_branch": "main"}' ;;
   3) echo '{"workflow_runs": [{"id": 67890}]}' ;;
   4) echo '{"artifacts": [{"name": "lcov-baseline", "expired": false, "archive_download_url": "https://example.com/artifact.zip"}]}' ;;
@@ -1369,6 +1369,60 @@ fi
 
 rm -f "$py_baseline" "$py_current"
 cleanup_git_repo "$tmpdir"
+
+# ---------------------------------------------------------------------------
+# Test 26: Baseline retrieval — HTTP 403 permission error
+# ---------------------------------------------------------------------------
+run_test "Baseline retrieval: HTTP 403 mentions actions:read permission"
+
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/lcov-test-XXXXXX")"
+
+mock_bin="${tmpdir}/mock-bin"
+mkdir -p "$mock_bin"
+cat > "${mock_bin}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+# Return a 403 response body and status code (simulating missing actions:read)
+printf '%s\n%s' '{"message":"Resource not accessible by integration"}' '403'
+MOCKCURL
+chmod +x "${mock_bin}/curl"
+
+github_output="${tmpdir}/github_output"
+: > "$github_output"
+
+output="$(
+  PATH="${mock_bin}:${PATH}" \
+  GITHUB_OUTPUT="$github_output" \
+  GITHUB_REPOSITORY="owner/repo" \
+  GITHUB_RUN_ID="11111" \
+  INPUT_GITHUB_TOKEN="fake-token" \
+  bash "$RETRIEVE_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0 (graceful fallback)"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if grep -q "downloaded=false" "$github_output"; then
+  pass "output contains downloaded=false"
+else
+  fail "output missing downloaded=false"
+fi
+
+if echo "$output" | grep -q "actions: read"; then
+  pass "notice message mentions 'actions: read' permission"
+else
+  fail "notice message should mention 'actions: read' permission"
+fi
+
+if echo "$output" | grep -q "HTTP 403"; then
+  pass "notice message mentions HTTP 403"
+else
+  fail "notice message should mention HTTP 403"
+fi
+
+rm -rf "$tmpdir"
 
 # ---------------------------------------------------------------------------
 # Summary

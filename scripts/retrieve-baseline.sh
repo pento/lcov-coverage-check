@@ -49,9 +49,17 @@ ACCEPT_HEADER="Accept: application/vnd.github+json"
 # ---------------------------------------------------------------------------
 # 1. Get workflow ID from current run
 # ---------------------------------------------------------------------------
-workflow_id="$(curl -s -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
-  "${API_BASE}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" \
-  | jq -r '.workflow_id')"
+response="$(curl -s -w '\n%{http_code}' -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+  "${API_BASE}/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}")"
+http_code="$(echo "$response" | tail -1)"
+body="$(echo "$response" | sed '$d')"
+workflow_id="$(echo "$body" | jq -r '.workflow_id')"
+
+if [[ "$http_code" == "403" || "$http_code" == "404" ]]; then
+  echo "::notice::GitHub API returned HTTP ${http_code} — the github-token likely needs 'actions: read' permission. Add 'permissions: actions: read' to your workflow. Running in summary-only mode."
+  write_output "downloaded" "false"
+  exit 0
+fi
 
 if [[ -z "$workflow_id" || "$workflow_id" == "null" ]]; then
   echo "::notice::Could not determine workflow ID — running in summary-only mode"
