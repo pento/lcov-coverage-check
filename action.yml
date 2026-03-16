@@ -19,6 +19,10 @@ inputs:
     description: "Require that per-file coverage of modified files does not decrease vs baseline"
     required: false
     default: "true"
+  ignore-patterns:
+    description: "File patterns to exclude from coverage checks (one glob pattern per line)"
+    required: false
+    default: ""
   github-token:
     description: "GitHub token for PR comments and artifact management. If empty, no comments or artifacts."
     required: false
@@ -64,6 +68,7 @@ runs:
         INPUT_NEW_FILE_MINIMUM_COVERAGE: ${{ inputs.new-file-minimum-coverage }}
         INPUT_PATH: ${{ inputs.path }}
         INPUT_CHANGED_FILE_NO_DECREASE: ${{ inputs.changed-file-no-decrease }}
+        INPUT_IGNORE_PATTERNS: ${{ inputs.ignore-patterns }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
       run: "${{ github.action_path }}/scripts/check-coverage.sh"
 

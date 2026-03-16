@@ -25,8 +25,11 @@ A reusable composite GitHub Action that parses LCOV coverage files, reports cove
   uses: pento/lcov-coverage-check@main
   with:
     new-file-minimum-coverage: 80
-    path: 'lib/'
+    path: "lib/"
     changed-file-no-decrease: true
+    ignore-patterns: |
+      *.g.dart
+      *.freezed.dart
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
@@ -74,28 +77,32 @@ jobs:
         uses: pento/lcov-coverage-check@main
         with:
           new-file-minimum-coverage: 80
-          path: 'lib/'
+          path: "lib/"
           changed-file-no-decrease: true
+          ignore-patterns: |
+            *.g.dart
+            *.freezed.dart
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
 ## Inputs
 
-| Input | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `lcov-file` | no | `coverage/lcov.info` | Path to current LCOV coverage file |
-| `new-file-minimum-coverage` | no | `80` | Minimum coverage percentage for new files (0-100) |
-| `path` | no | `lib/` | Only enforce file-level checks under this path prefix. Empty = all paths |
-| `changed-file-no-decrease` | no | `true` | Require that per-file coverage of modified files does not decrease vs baseline |
-| `github-token` | no | `''` | GitHub token for PR comments and artifact management. If empty, runs in summary-only mode |
+| Input                       | Required | Default              | Description                                                                               |
+| --------------------------- | -------- | -------------------- | ----------------------------------------------------------------------------------------- |
+| `lcov-file`                 | no       | `coverage/lcov.info` | Path to current LCOV coverage file                                                        |
+| `new-file-minimum-coverage` | no       | `80`                 | Minimum coverage percentage for new files (0-100)                                         |
+| `path`                      | no       | `lib/`               | Only enforce file-level checks under this path prefix. Empty = all paths                  |
+| `changed-file-no-decrease`  | no       | `true`               | Require that per-file coverage of modified files does not decrease vs baseline            |
+| `ignore-patterns`           | no       | `''`                 | File patterns to exclude from coverage checks (one glob pattern per line)                 |
+| `github-token`              | no       | `''`                 | GitHub token for PR comments and artifact management. If empty, runs in summary-only mode |
 
 ## Outputs
 
-| Output | Description |
-|--------|-------------|
-| `overall-coverage` | Current overall coverage percentage (e.g., `87.50`) |
-| `baseline-coverage` | Baseline coverage percentage (empty if summary-only) |
-| `passed` | `'true'` or `'false'` |
+| Output                         | Description                                                 |
+| ------------------------------ | ----------------------------------------------------------- |
+| `overall-coverage`             | Current overall coverage percentage (e.g., `87.50`)         |
+| `baseline-coverage`            | Baseline coverage percentage (empty if summary-only)        |
+| `passed`                       | `'true'` or `'false'`                                       |
 | `baseline-artifact-downloaded` | `'true'` if baseline was auto-retrieved from a previous run |
 
 ## Automatic Baseline Management
@@ -111,6 +118,7 @@ If no baseline artifact is found (e.g., first run), the action falls back to sum
 ### Token permissions
 
 The `github-token` needs the following permissions:
+
 - `actions: read` — to list workflow runs and download artifacts
 - `pull-requests: write` — to post/update PR comments
 
@@ -132,6 +140,23 @@ Baseline artifacts follow your repository's default artifact retention policy. Y
 2. **New-file check**: New source files (filtered to file types found in the LCOV data, detected via `git diff --diff-filter=A`) must meet the `new-file-minimum-coverage` threshold. Files with no instrumentable lines (`LF:0`) pass automatically. Files not found in the LCOV data are treated as 0% coverage.
 3. **Changed-file ratchet**: If `changed-file-no-decrease` is `true`, modified source files (filtered to file types found in the LCOV data) must not have decreased per-file coverage. Files not present in the baseline LCOV data are skipped.
 
+### Ignore patterns
+
+When `ignore-patterns` is provided, matching files are excluded from all coverage checks:
+
+- **LCOV filtering**: Records for matching files are removed from LCOV data before any calculations, affecting both overall and per-file coverage numbers.
+- **New-file check**: New files matching a pattern are skipped.
+- **Changed-file ratchet**: Modified files matching a pattern are skipped.
+
+Patterns use standard glob syntax: `*` matches any characters (including path separators), `?` matches a single character, and `[...]` matches character classes. One pattern per line.
+
+Common examples:
+
+- `*.g.dart` — Dart code generation output
+- `*.freezed.dart` — Freezed-generated files
+- `*.generated.go` — Go generated code
+- `lib/generated/*` — all files under a directory
+
 ### PR comments
 
 When `github-token` is provided and the action runs in a pull request context, a markdown comment is posted (or updated) on the PR. The comment is identified by a hidden HTML marker so it gets updated on subsequent pushes rather than creating duplicate comments.
@@ -146,6 +171,7 @@ When `github-token` is provided and the action runs in a pull request context, a
 - **New file with `LF:0`**: No instrumentable lines, passes automatically
 - **Modified file not in baseline LCOV**: Skipped (new to coverage tracking)
 - **Modified file not in current LCOV**: Treated as 0% coverage
+- **Ignored files**: Completely excluded from LCOV data, overall coverage, and per-file checks
 
 ## Local development
 
@@ -159,6 +185,7 @@ INPUT_HEAD_REF=HEAD \
 INPUT_NEW_FILE_MINIMUM_COVERAGE=80 \
 INPUT_PATH=lib/ \
 INPUT_CHANGED_FILE_NO_DECREASE=true \
+INPUT_IGNORE_PATTERNS="" \
 INPUT_GITHUB_TOKEN="" \
   ./scripts/check-coverage.sh
 ```
