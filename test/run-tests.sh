@@ -2939,7 +2939,37 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 53: Valid decimal new-file-minimum-coverage is accepted
+# Test 53: Out-of-range new-file-minimum-coverage is rejected
+# ---------------------------------------------------------------------------
+run_test "Invalid new-file-minimum-coverage: value > 100 rejected"
+
+output="$(
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="150" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -ne 0 ]]; then
+  pass "exit code is non-zero for out-of-range threshold"
+else
+  fail "expected non-zero exit code for threshold > 100, got 0"
+fi
+
+if echo "$output" | grep -q "between 0 and 100"; then
+  pass "output mentions valid range"
+else
+  fail "output missing range error message"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 54: Valid decimal new-file-minimum-coverage is accepted
 # ---------------------------------------------------------------------------
 run_test "Valid decimal new-file-minimum-coverage: accepted"
 
@@ -2963,7 +2993,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 54: Source tag sanitizes HTML comment sequences
+# Test 55: Source tag sanitizes HTML comment sequences
 # ---------------------------------------------------------------------------
 run_test "Source tag: double-dash in GITHUB_JOB is sanitized"
 

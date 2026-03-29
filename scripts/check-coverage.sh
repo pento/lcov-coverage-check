@@ -27,32 +27,6 @@ set -euo pipefail
 ###############################################################################
 
 # ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
-INPUT_LCOV_FILE="${INPUT_LCOV_FILE:-}"
-INPUT_LCOV_BASE="${INPUT_LCOV_BASE:-}"
-INPUT_BASE_REF="${INPUT_BASE_REF:-}"
-INPUT_HEAD_REF="${INPUT_HEAD_REF:-HEAD}"
-INPUT_NEW_FILE_MINIMUM_COVERAGE="${INPUT_NEW_FILE_MINIMUM_COVERAGE:-80}"
-if ! [[ "$INPUT_NEW_FILE_MINIMUM_COVERAGE" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-  echo "::error::new-file-minimum-coverage must be a number (got: '${INPUT_NEW_FILE_MINIMUM_COVERAGE}')"
-  exit 1
-fi
-INPUT_PATH="${INPUT_PATH:-lib/}"
-INPUT_CHANGED_FILE_NO_DECREASE="${INPUT_CHANGED_FILE_NO_DECREASE:-true}"
-INPUT_IGNORE_PATTERNS="${INPUT_IGNORE_PATTERNS:-}"
-INPUT_COVERAGE_LABEL="${INPUT_COVERAGE_LABEL:-}"
-INPUT_GITHUB_TOKEN="${INPUT_GITHUB_TOKEN:-}"
-
-# Sanitize coverage label: lowercase, alphanumeric + hyphens only
-if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
-  INPUT_COVERAGE_LABEL="$(echo "$INPUT_COVERAGE_LABEL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
-  if [[ -z "$INPUT_COVERAGE_LABEL" ]]; then
-    echo "::warning::coverage-label contained only invalid characters and was discarded"
-  fi
-fi
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -137,6 +111,33 @@ compare_floats() {
 format_pct() {
   awk -v v="$1" 'BEGIN { printf "%.2f", v + 0 }'
 }
+
+# ---------------------------------------------------------------------------
+# Defaults & validation
+# ---------------------------------------------------------------------------
+INPUT_LCOV_FILE="${INPUT_LCOV_FILE:-}"
+INPUT_LCOV_BASE="${INPUT_LCOV_BASE:-}"
+INPUT_BASE_REF="${INPUT_BASE_REF:-}"
+INPUT_HEAD_REF="${INPUT_HEAD_REF:-HEAD}"
+INPUT_NEW_FILE_MINIMUM_COVERAGE="${INPUT_NEW_FILE_MINIMUM_COVERAGE:-80}"
+if ! [[ "$INPUT_NEW_FILE_MINIMUM_COVERAGE" =~ ^[0-9]+([.][0-9]+)?$ ]] \
+   || compare_floats "$INPUT_NEW_FILE_MINIMUM_COVERAGE" "gt" "100"; then
+  echo "::error::new-file-minimum-coverage must be a number between 0 and 100 (got: '${INPUT_NEW_FILE_MINIMUM_COVERAGE}')"
+  exit 1
+fi
+INPUT_PATH="${INPUT_PATH:-lib/}"
+INPUT_CHANGED_FILE_NO_DECREASE="${INPUT_CHANGED_FILE_NO_DECREASE:-true}"
+INPUT_IGNORE_PATTERNS="${INPUT_IGNORE_PATTERNS:-}"
+INPUT_COVERAGE_LABEL="${INPUT_COVERAGE_LABEL:-}"
+INPUT_GITHUB_TOKEN="${INPUT_GITHUB_TOKEN:-}"
+
+# Sanitize coverage label: lowercase, alphanumeric + hyphens only
+if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
+  INPUT_COVERAGE_LABEL="$(echo "$INPUT_COVERAGE_LABEL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
+  if [[ -z "$INPUT_COVERAGE_LABEL" ]]; then
+    echo "::warning::coverage-label contained only invalid characters and was discarded"
+  fi
+fi
 
 # should_ignore_file PATH PATTERNS
 #   Returns 0 (true) if PATH matches any of the newline-separated glob patterns.
@@ -560,10 +561,9 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number"
   fi
 
   # Source tag to detect when different runs share the same (unlabeled) marker
-  # Sanitize components to prevent breaking the HTML comment structure
-  safe_job="${GITHUB_JOB:-unknown}"
-  safe_job="${safe_job//--/-}"
-  safe_lcov="${INPUT_LCOV_FILE//--/-}"
+  # Collapse runs of 2+ hyphens to prevent breaking HTML comment structure
+  safe_job="$(echo "${GITHUB_JOB:-unknown}" | sed 's/--*/-/g')"
+  safe_lcov="$(echo "$INPUT_LCOV_FILE" | sed 's/--*/-/g')"
   source_id="${safe_job}:${safe_lcov}"
   source_tag="<!-- lcov-coverage-source:${source_id} -->"
 
