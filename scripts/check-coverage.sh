@@ -13,7 +13,7 @@ set -euo pipefail
 #   INPUT_BASE_REF                  - Git ref for base branch (optional)
 #   INPUT_HEAD_REF                  - Git ref for PR head (default: HEAD)
 #   INPUT_NEW_FILE_MINIMUM_COVERAGE - Min coverage % for new files (default: 80)
-#   INPUT_PATH                      - Only enforce under this prefix (default: lib/)
+#   INPUT_PATH                      - Path prefixes, one per line (default: lib/)
 #   INPUT_CHANGED_FILE_NO_DECREASE  - Require no per-file decrease (default: true)
 #   INPUT_IGNORE_PATTERNS           - Newline-separated glob patterns to exclude (optional)
 #   INPUT_GITHUB_TOKEN              - Token for PR comments (optional)
@@ -200,6 +200,15 @@ if [[ -n "$INPUT_IGNORE_PATTERNS" ]]; then
   INPUT_LCOV_FILE="$(filter_lcov_file "$INPUT_LCOV_FILE" "$INPUT_IGNORE_PATTERNS")"
 fi
 
+# --- Display configured path prefixes ---
+if [[ -n "$INPUT_PATH" ]]; then
+  echo "== Path Prefixes =="
+  while IFS= read -r _path; do
+    [[ -n "$_path" ]] && echo "  - ${_path}"
+  done <<< "$INPUT_PATH"
+  echo ""
+fi
+
 # Parse current coverage
 read -r cur_hit cur_found cur_pct <<< "$(parse_lcov_overall "$INPUT_LCOV_FILE")"
 cur_pct_fmt="$(format_pct "$cur_pct")"
@@ -288,13 +297,30 @@ fi
 # --- Build pathspec from LCOV extensions ---
 lcov_extensions="$(extract_lcov_extensions "$INPUT_LCOV_FILE")"
 pathspec_args=()
+
+# Collect path prefixes (one per line); empty means "all paths" (prefix="")
+path_prefixes=()
+if [[ -n "$INPUT_PATH" ]]; then
+  while IFS= read -r _p; do
+    [[ -z "$_p" ]] && continue
+    path_prefixes+=("$_p")
+  done <<< "$INPUT_PATH"
+fi
+if [[ ${#path_prefixes[@]} -eq 0 ]]; then
+  path_prefixes=("")
+fi
+
 if [[ -n "$lcov_extensions" ]]; then
-  while IFS= read -r ext; do
-    [[ -z "$ext" ]] && continue
-    pathspec_args+=("${INPUT_PATH}*${ext}")
-  done <<< "$lcov_extensions"
+  for prefix in "${path_prefixes[@]}"; do
+    while IFS= read -r ext; do
+      [[ -z "$ext" ]] && continue
+      pathspec_args+=("${prefix}*${ext}")
+    done <<< "$lcov_extensions"
+  done
 else
-  pathspec_args=("${INPUT_PATH}")
+  for prefix in "${path_prefixes[@]}"; do
+    pathspec_args+=("${prefix}")
+  done
 fi
 
 # --- Ensure base/head refs are available (shallow clones may not have them) ---

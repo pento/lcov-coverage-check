@@ -12,7 +12,7 @@ inputs:
     required: false
     default: "80"
   path:
-    description: "Only enforce file-level checks under this path prefix. Empty = all paths."
+    description: "Path prefixes to enforce file-level checks under (one per line). Empty = all paths."
     required: false
     default: "lib/"
   changed-file-no-decrease:
