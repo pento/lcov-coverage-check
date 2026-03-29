@@ -23,6 +23,10 @@ inputs:
     description: "File patterns to exclude from coverage checks (one glob pattern per line)"
     required: false
     default: ""
+  coverage-label:
+    description: "Label to distinguish multiple coverage checks (e.g., 'go', 'frontend'). Allows separate PR comments and baseline artifacts per check."
+    required: false
+    default: ""
   github-token:
     description: "GitHub token for PR comments and artifact management. If empty, no comments or artifacts."
     required: false
@@ -49,12 +53,26 @@ branding:
 runs:
   using: composite
   steps:
+    - name: Sanitize coverage label
+      id: label
+      shell: bash
+      run: |
+        label='${{ inputs.coverage-label }}'
+        if [[ -n "$label" ]]; then
+          label="$(echo "$label" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
+          if [[ -z "$label" ]]; then
+            echo "::warning::coverage-label contained only invalid characters and was discarded"
+          fi
+        fi
+        echo "value=${label}" >> "$GITHUB_OUTPUT"
+
     - name: Retrieve baseline artifact
       id: retrieve-baseline
       if: inputs.github-token != ''
       shell: bash
       env:
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_COVERAGE_LABEL: ${{ steps.label.outputs.value }}
       run: "${{ github.action_path }}/scripts/retrieve-baseline.sh"
 
     - name: Check coverage
@@ -69,6 +87,7 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
         INPUT_CHANGED_FILE_NO_DECREASE: ${{ inputs.changed-file-no-decrease }}
         INPUT_IGNORE_PATTERNS: ${{ inputs.ignore-patterns }}
+        INPUT_COVERAGE_LABEL: ${{ steps.label.outputs.value }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
       run: "${{ github.action_path }}/scripts/check-coverage.sh"
 
@@ -76,7 +95,7 @@ runs:
       if: ${{ !cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
       uses: actions/upload-artifact@v7
       with:
-        name: lcov-baseline
+        name: lcov-baseline${{ steps.label.outputs.value && format('-{0}', steps.label.outputs.value) || '' }}
         path: ${{ inputs.lcov-file }}
         overwrite: true
 
@@ -84,6 +103,6 @@ runs:
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       uses: actions/upload-artifact@v7
       with:
-        name: lcov-coverage
+        name: lcov-coverage${{ steps.label.outputs.value && format('-{0}', steps.label.outputs.value) || '' }}
         path: ${{ inputs.lcov-file }}
         overwrite: true

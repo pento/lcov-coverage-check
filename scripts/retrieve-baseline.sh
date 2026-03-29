@@ -10,6 +10,7 @@ set -euo pipefail
 #
 # Environment variables (inputs):
 #   INPUT_GITHUB_TOKEN  - GitHub token for API access (required)
+#   INPUT_COVERAGE_LABEL - Label to distinguish multiple coverage checks (optional)
 #
 # GitHub Actions environment:
 #   GITHUB_OUTPUT       - File to write outputs
@@ -42,6 +43,11 @@ trap 'echo "::notice::Baseline artifact retrieval failed — running in summary-
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+INPUT_COVERAGE_LABEL="${INPUT_COVERAGE_LABEL:-}"
+# Sanitize coverage label: lowercase, alphanumeric + hyphens only
+if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
+  INPUT_COVERAGE_LABEL="$(echo "$INPUT_COVERAGE_LABEL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
+fi
 API_BASE="${GITHUB_API_URL:-https://api.github.com}"
 AUTH_HEADER="Authorization: token ${INPUT_GITHUB_TOKEN}"
 ACCEPT_HEADER="Accept: application/vnd.github+json"
@@ -96,13 +102,19 @@ fi
 # ---------------------------------------------------------------------------
 # 4. Find lcov-baseline artifact (not expired)
 # ---------------------------------------------------------------------------
+if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
+  ARTIFACT_NAME="lcov-baseline-${INPUT_COVERAGE_LABEL}"
+else
+  ARTIFACT_NAME="lcov-baseline"
+fi
+
 artifact_url="$(curl -s -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
   "${API_BASE}/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" \
-  | jq -r '.artifacts[] | select(.name == "lcov-baseline" and .expired == false) | .archive_download_url' \
+  | jq -r --arg name "${ARTIFACT_NAME}" '.artifacts[] | select(.name == $name and .expired == false) | .archive_download_url' \
   | head -1)"
 
 if [[ -z "$artifact_url" ]]; then
-  echo "::notice::No lcov-baseline artifact found in run ${run_id} — running in summary-only mode"
+  echo "::notice::No ${ARTIFACT_NAME} artifact found in run ${run_id} — running in summary-only mode"
   write_output "downloaded" "false"
   exit 0
 fi
