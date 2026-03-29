@@ -35,6 +35,18 @@ A reusable composite GitHub Action that parses LCOV coverage files, reports cove
 
 > **Note**: When using `github-token`, your workflow needs `actions: read` permission. See [Token permissions](#token-permissions).
 
+If your project has source code in multiple directories, specify multiple path prefixes (one per line):
+
+```yaml
+- name: Check coverage
+  uses: pento/lcov-coverage-check@main
+  with:
+    path: |
+      lib/
+      src/
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
 - **On main push**: summary report + stores LCOV as `lcov-baseline` artifact
 - **On PR**: auto-retrieves baseline, auto-detects git refs, runs full comparison, posts PR comment, stores `lcov-coverage` artifact
 
@@ -91,7 +103,7 @@ jobs:
 | --------------------------- | -------- | -------------------- | ----------------------------------------------------------------------------------------- |
 | `lcov-file`                 | no       | `coverage/lcov.info` | Path to current LCOV coverage file                                                        |
 | `new-file-minimum-coverage` | no       | `80`                 | Minimum coverage percentage for new files (0-100)                                         |
-| `path`                      | no       | `lib/`               | Only enforce file-level checks under this path prefix. Empty = all paths                  |
+| `path`                      | no       | `lib/`               | Path prefixes for file-level checks, one per line. Empty = all paths                      |
 | `changed-file-no-decrease`  | no       | `true`               | Require that per-file coverage of modified files does not decrease vs baseline            |
 | `ignore-patterns`           | no       | `''`                 | File patterns to exclude from coverage checks (one glob pattern per line)                 |
 | `github-token`              | no       | `''`                 | GitHub token for PR comments and artifact management. If empty, runs in summary-only mode |
