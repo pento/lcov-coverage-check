@@ -319,6 +319,9 @@ if [[ -n "$lcov_extensions" ]]; then
   done
 else
   for prefix in "${path_prefixes[@]}"; do
+    # Empty prefix means "all paths" — skip so pathspec_args stays empty,
+    # which makes git diff match everything rather than erroring on "".
+    [[ -z "$prefix" ]] && continue
     pathspec_args+=("${prefix}")
   done
 fi

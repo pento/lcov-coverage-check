@@ -2135,7 +2135,83 @@ rm -f "$ep_lcov" "$ep_base"
 cleanup_git_repo "$tmpdir"
 
 # ---------------------------------------------------------------------------
-# Test 39: Path prefixes are displayed in output
+# Test 39: Empty path with no LCOV extensions matches all files
+# ---------------------------------------------------------------------------
+run_test "Empty path with no LCOV extensions matches all files"
+
+tmpdir="$(setup_git_repo \
+  "anywhere/file:a" \
+  "somewhere/newfile:new" \
+  ""
+)"
+
+# LCOV with extensionless source files — extract_lcov_extensions returns nothing
+ep2_lcov="$(mktemp "${TMPDIR:-/tmp}/ep2-lcov-XXXXXX")"
+cat > "$ep2_lcov" <<'LCOV'
+TN:
+SF:anywhere/file
+DA:1,1
+DA:2,1
+DA:3,1
+DA:4,1
+LF:4
+LH:4
+end_of_record
+TN:
+SF:somewhere/newfile
+DA:1,1
+DA:2,1
+DA:3,1
+DA:4,1
+LF:4
+LH:4
+end_of_record
+LCOV
+
+ep2_base="$(mktemp "${TMPDIR:-/tmp}/ep2-base-XXXXXX")"
+cat > "$ep2_base" <<'LCOV'
+TN:
+SF:anywhere/file
+DA:1,1
+DA:2,1
+DA:3,1
+DA:4,1
+LF:4
+LH:4
+end_of_record
+LCOV
+
+output="$(
+  cd "$tmpdir" && \
+  INPUT_LCOV_FILE="$ep2_lcov" \
+  INPUT_LCOV_BASE="$ep2_base" \
+  INPUT_BASE_REF="base_ref" \
+  INPUT_HEAD_REF="head_ref" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="40" \
+  INPUT_PATH="" \
+  INPUT_CHANGED_FILE_NO_DECREASE="false" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if echo "$output" | grep -q "somewhere/newfile"; then
+  pass "extensionless file detected with empty path"
+else
+  fail "expected new file to be detected with empty path and no extensions"
+fi
+
+rm -f "$ep2_lcov" "$ep2_base"
+cleanup_git_repo "$tmpdir"
+
+# ---------------------------------------------------------------------------
+# Test 40: Path prefixes are displayed in output
 # ---------------------------------------------------------------------------
 run_test "Path prefixes are displayed in output"
 
