@@ -220,6 +220,26 @@ For new/modified file detection, the action needs access to both the base and he
 - **Ignored files**: Completely excluded from LCOV data, overall coverage, and per-file checks
 - **Changing a `coverage-label`**: Renaming a label orphans the old comment (it won't be updated or deleted) and the old baseline artifact is no longer used. The new label starts fresh.
 
+## Project structure
+
+```
+scripts/
+  lib/
+    common.sh          # Shared helpers (write_output, append_summary)
+    lcov.sh            # LCOV parsing and numeric helpers
+    filter.sh          # File filtering / ignore-pattern logic
+  check-coverage.sh    # Main coverage checking logic
+  retrieve-baseline.sh # Baseline artifact retrieval
+test/
+  helpers/
+    runner.sh          # Test framework (pass/fail/run_test)
+    git-helpers.sh     # Git repo setup/teardown for tests
+  tests/               # Test files, sourced by run-tests.sh
+  fixtures/            # LCOV fixture files
+  run-tests.sh         # Test runner
+action.yml             # GitHub Actions composite action definition
+```
+
 ## Local development
 
 The script can be run locally without GitHub Actions:

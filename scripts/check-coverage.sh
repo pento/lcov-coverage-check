@@ -26,91 +26,10 @@ set -euo pipefail
 #   GITHUB_EVENT_PATH     - Path to event payload JSON (set by Actions)
 ###############################################################################
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-# write_output KEY VALUE — append to $GITHUB_OUTPUT if available
-write_output() {
-  local key="$1" value="$2"
-  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-    echo "${key}=${value}" >> "$GITHUB_OUTPUT"
-  fi
-}
-
-# append_summary TEXT — append markdown to $GITHUB_STEP_SUMMARY if available
-append_summary() {
-  if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-    echo "$1" >> "$GITHUB_STEP_SUMMARY"
-  fi
-}
-
-# ---------------------------------------------------------------------------
-# LCOV parsing
-# ---------------------------------------------------------------------------
-
-# parse_lcov_overall FILE
-#   Prints a single line: "hit found percentage"
-#   If the file is empty or missing, prints "0 0 0"
-parse_lcov_overall() {
-  local file="$1"
-  if [[ ! -s "$file" ]]; then
-    echo "0 0 0"
-    return
-  fi
-  awk '
-    BEGIN { total_hit = 0; total_found = 0 }
-    /^LH:/ { total_hit += substr($0, 4) }
-    /^LF:/ { total_found += substr($0, 4) }
-    END {
-      if (total_found > 0)
-        printf "%d %d %.4f\n", total_hit, total_found, (total_hit / total_found) * 100
-      else
-        printf "0 0 0\n"
-    }
-  ' "$file"
-}
-
-# parse_lcov_per_file FILE
-#   Prints lines of: "filepath hit found"
-#   One line per source file record.
-parse_lcov_per_file() {
-  local file="$1"
-  if [[ ! -s "$file" ]]; then
-    return
-  fi
-  awk '
-    /^SF:/ { sf = substr($0, 4); hit = 0; found = 0 }
-    /^LH:/ { hit = substr($0, 4) }
-    /^LF:/ { found = substr($0, 4) }
-    /^end_of_record/ { print sf, hit, found }
-  ' "$file"
-}
-
-# coverage_pct HIT FOUND — prints percentage via awk
-coverage_pct() {
-  awk -v h="$1" -v f="$2" 'BEGIN {
-    if (f+0 > 0) printf "%.4f", (h / f) * 100; else printf "0"
-  }'
-}
-
-# compare_floats A OP B — returns 0 (true) or 1 (false)
-#   OP: "lt", "le", "gt", "ge", "eq"
-compare_floats() {
-  awk -v a="$1" -v op="$2" -v b="$3" 'BEGIN {
-    if (op == "lt") exit !(a + 0 < b + 0)
-    if (op == "le") exit !(a + 0 <= b + 0)
-    if (op == "gt") exit !(a + 0 > b + 0)
-    if (op == "ge") exit !(a + 0 >= b + 0)
-    if (op == "eq") exit !(a + 0 == b + 0)
-    exit 1
-  }'
-}
-
-# format_pct VALUE — prints value with 2 decimal places
-format_pct() {
-  awk -v v="$1" 'BEGIN { printf "%.2f", v + 0 }'
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/common.sh"
+source "${SCRIPT_DIR}/lib/lcov.sh"
+source "${SCRIPT_DIR}/lib/filter.sh"
 
 # ---------------------------------------------------------------------------
 # Defaults & validation
@@ -139,65 +58,6 @@ if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
   fi
 fi
 write_output "coverage-label" "$INPUT_COVERAGE_LABEL"
-
-# should_ignore_file PATH PATTERNS
-#   Returns 0 (true) if PATH matches any of the newline-separated glob patterns.
-should_ignore_file() {
-  local path="$1" patterns="$2"
-  [[ -z "$patterns" ]] && return 1
-  local pattern
-  while IFS= read -r pattern; do
-    [[ -z "$pattern" ]] && continue
-    # shellcheck disable=SC2254
-    if [[ "$path" == $pattern ]]; then
-      return 0
-    fi
-  done <<< "$patterns"
-  return 1
-}
-
-# filter_lcov_file FILE PATTERNS
-#   Creates a filtered copy of an LCOV file, excluding records whose SF: path
-#   matches any ignore pattern. Prints the path to the filtered file.
-#   If no patterns or the file is empty/missing, prints the original path.
-filter_lcov_file() {
-  local file="$1" patterns="$2"
-  if [[ -z "$patterns" || ! -s "$file" ]]; then
-    echo "$file"
-    return
-  fi
-  local filtered
-  filtered="$(mktemp "${TMPDIR:-/tmp}/lcov-filtered-XXXXXX")"
-  local skip=false
-  while IFS= read -r line || [[ -n "$line" ]]; do
-    if [[ "$line" == SF:* ]]; then
-      if should_ignore_file "${line#SF:}" "$patterns"; then
-        skip=true
-      else
-        skip=false
-      fi
-    fi
-    if [[ "$line" == "end_of_record" && "$skip" == true ]]; then
-      skip=false
-      continue
-    fi
-    [[ "$skip" == true ]] && continue
-    echo "$line" >> "$filtered"
-  done < "$file"
-  echo "$filtered"
-}
-
-# extract_lcov_extensions FILE
-#   Prints unique file extensions found in SF: lines (e.g., ".dart", ".ts")
-extract_lcov_extensions() {
-  local file="$1"
-  [[ ! -s "$file" ]] && return
-  awk '/^SF:/ {
-    sf = substr($0, 4)
-    n = split(sf, parts, ".")
-    if (n > 1) print "." parts[n]
-  }' "$file" | sort -u
-}
 
 # ---------------------------------------------------------------------------
 # Main
