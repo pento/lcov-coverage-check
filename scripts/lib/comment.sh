@@ -2,6 +2,13 @@
 [[ -n "${_LIB_COMMENT_LOADED:-}" ]] && return 0
 _LIB_COMMENT_LOADED=1
 
+# _sanitize_section_key KEY
+#   Strips any characters that are not [a-z0-9-] from a section key.
+#   Prevents path-traversal or filesystem issues when keys are used as filenames.
+_sanitize_section_key() {
+  printf '%s' "$1" | tr -cd 'a-z0-9-'
+}
+
 # build_section KEY SOURCE_ID CONTENT
 #   Wraps CONTENT in section delimiters with an embedded source tag.
 #   CONTENT should contain actual newlines (not literal \n sequences).
@@ -34,35 +41,44 @@ replace_section() {
   local existing_keys
   existing_keys="$(extract_section_keys "$body")"
 
-  # Build a temporary directory to hold sections; clean up on any exit path
+  # Build a temporary directory to hold sections
   local tmpdir
   tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/lcov-sections-XXXXXX")"
 
+  # Ensure tmpdir is cleaned up on any exit path (including set -e failures)
+  trap 'rm -rf "$tmpdir"' RETURN
+
   # Extract each existing section (except the one we're replacing) into files.
   # Uses index() for matching to tolerate trailing whitespace on marker lines.
+  # Keys are sanitized before use as filenames to prevent path traversal.
   if [[ -n "$existing_keys" ]]; then
     while IFS= read -r k; do
       [[ -z "$k" ]] && continue
       if [[ "$k" == "$key" ]]; then
         continue  # skip — we'll use the new section instead
       fi
+      local safe_k
+      safe_k="$(_sanitize_section_key "$k")"
+      [[ -z "$safe_k" ]] && continue
       echo "$body" | awk -v start="<!-- lcov-section:${k} -->" \
                           -v end="<!-- lcov-section-end:${k} -->" '
         index($0, start) == 1 { found=1 }
         found { print }
         index($0, end) == 1 { found=0 }
-      ' > "${tmpdir}/${k}"
+      ' > "${tmpdir}/${safe_k}"
     done <<< "$existing_keys"
   fi
 
-  # Write the new/replacement section
-  printf '%s\n' "$new_section" > "${tmpdir}/${key}"
+  # Write the new/replacement section (key is already sanitized by the caller)
+  local safe_key
+  safe_key="$(_sanitize_section_key "$key")"
+  printf '%s\n' "$new_section" > "${tmpdir}/${safe_key}"
 
   # Sort keys: "default" first, then alphabetical
   local sorted_keys
   sorted_keys="$( {
     ls "$tmpdir" | grep -x 'default' || true
-    ls "$tmpdir" | grep -vx 'default' | sort
+    ls "$tmpdir" | grep -vx 'default' | sort || true
   } )"
 
   # Rebuild comment
@@ -72,6 +88,5 @@ replace_section() {
     result+=$'\n'"$(cat "${tmpdir}/${k}")"
   done <<< "$sorted_keys"
 
-  rm -rf "$tmpdir"
   echo "$result"
 }

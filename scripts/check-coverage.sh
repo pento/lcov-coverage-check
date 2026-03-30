@@ -445,7 +445,7 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number"
   source_id="${safe_job}:${safe_lcov}"
 
   # Build this run's section (convert literal \n in summary_md to actual newlines)
-  new_section="$(build_section "$section_key" "$source_id" "$(echo -e "$summary_md")")"
+  new_section="$(build_section "$section_key" "$source_id" "$(printf '%b' "$summary_md")")"
 
   # Fetch PR comments (paginated, early-exit) for existing-comment lookup
   all_comments="[]"
@@ -554,11 +554,16 @@ ${page_response}")"
   if [[ -n "$old_label_comment_ids" ]]; then
     while IFS= read -r old_id; do
       [[ -z "$old_id" ]] && continue
-      curl -s -X DELETE \
+      delete_status="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
         -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
         -H "Accept: application/vnd.github+json" \
-        "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/comments/${old_id}" > /dev/null
-      echo "  Cleaned up old-format comment (ID: ${old_id})"
+        "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/comments/${old_id}" \
+        || true)"
+      if [[ "$delete_status" -ge 200 && "$delete_status" -lt 300 ]]; then
+        echo "  Cleaned up old-format comment (ID: ${old_id})"
+      else
+        echo "  Warning: failed to clean up old-format comment (ID: ${old_id}), HTTP status: ${delete_status}"
+      fi
     done <<< "$old_label_comment_ids"
   fi
 fi

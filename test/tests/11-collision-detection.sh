@@ -325,7 +325,10 @@ curl_log="${mock_bin}/curl.log"
 cat > "${mock_bin}/curl" <<'MOCKCURL'
 #!/usr/bin/env bash
 echo "$@" >> "$(dirname "$0")/curl.log"
-if echo "$@" | grep -q "\-X DELETE\|\-X POST\|\-X PATCH"; then
+if echo "$@" | grep -q "\-X DELETE" && echo "$@" | grep -q "\-w"; then
+  # DELETE with status check — return HTTP 204
+  echo -n '204'
+elif echo "$@" | grep -q "\-X DELETE\|\-X POST\|\-X PATCH"; then
   echo '{}'
 else
   echo '[{"id": 500, "body": "<!-- lcov-coverage-check:go -->\nold labeled report"}, {"id": 501, "body": "<!-- lcov-coverage-check:frontend -->\nold frontend report"}]'
