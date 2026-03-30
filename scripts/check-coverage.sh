@@ -468,12 +468,6 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number"
     all_comments="$(jq -s '.[0] + .[1]' <<< "${all_comments}
 ${page_response}")"
 
-    # If this page contains our marker, we have enough data — stop early
-    if echo "$page_response" | jq -e ".[] | select(.body | startswith(\"${comment_marker}\"))" > /dev/null 2>&1; then
-      rm -f "$comments_header_file"
-      break
-    fi
-
     # Check Link header for next page
     has_next="$(grep -i '^link:' "$comments_header_file" | grep -o 'rel="next"' || true)"
     rm -f "$comments_header_file"
