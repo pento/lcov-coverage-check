@@ -572,12 +572,45 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number"
   source_id="${safe_job}:${safe_lcov}"
   source_tag="<!-- lcov-coverage-source:${source_id} -->"
 
-  # Fetch all PR comments once for both collision detection and existing-comment lookup
-  all_comments="$(
-    curl -s -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
-      -H "Accept: application/vnd.github+json" \
-      "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments?per_page=100"
-  )"
+  # Fetch PR comments (paginated, early-exit) for collision detection and existing-comment lookup
+  all_comments="[]"
+  comments_page=1
+  while true; do
+    comments_header_file="$(mktemp "${TMPDIR:-/tmp}/lcov-headers-XXXXXX")"
+    page_response="$(
+      curl -s -D "$comments_header_file" \
+        -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
+        -H "Accept: application/vnd.github+json" \
+        "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments?per_page=100&page=${comments_page}" \
+        || true
+    )"
+
+    # Stop if response is not a valid JSON array (API error, rate limit, etc.)
+    if ! echo "$page_response" | jq -e 'type == "array"' > /dev/null 2>&1; then
+      rm -f "$comments_header_file"
+      break
+    fi
+    all_comments="$(jq -s '.[0] + .[1]' <<< "${all_comments}
+${page_response}")"
+
+    # If this page contains our marker, we have enough data — stop early
+    if echo "$page_response" | jq -e ".[] | select(.body | startswith(\"${comment_marker}\"))" > /dev/null 2>&1; then
+      rm -f "$comments_header_file"
+      break
+    fi
+
+    # Check Link header for next page
+    has_next="$(grep -i '^link:' "$comments_header_file" | grep -o 'rel="next"' || true)"
+    rm -f "$comments_header_file"
+
+    if [[ -z "$has_next" ]]; then
+      break
+    fi
+    comments_page=$((comments_page + 1))
+    if [[ $comments_page -gt 50 ]]; then
+      break
+    fi
+  done
 
   # --- Collision detection ---
   collision_warning=""
