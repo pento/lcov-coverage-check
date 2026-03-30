@@ -2247,6 +2247,867 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 41: Coverage label — summary-only heading includes label
+# ---------------------------------------------------------------------------
+run_test "Coverage label: summary-only heading includes label"
+
+step_summary="$(mktemp "${TMPDIR:-/tmp}/step-summary-XXXXXX")"
+
+output="$(
+  GITHUB_STEP_SUMMARY="$step_summary" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_COVERAGE_LABEL="backend" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if grep -q "Coverage Summary — backend" "$step_summary" 2>/dev/null; then
+  pass "step summary contains 'Coverage Summary — backend'"
+else
+  fail "step summary missing 'Coverage Summary — backend'"
+fi
+
+rm -f "$step_summary"
+
+# ---------------------------------------------------------------------------
+# Test 42: Coverage label — comparison heading includes label
+# ---------------------------------------------------------------------------
+run_test "Coverage label: comparison heading includes label"
+
+step_summary="$(mktemp "${TMPDIR:-/tmp}/step-summary-XXXXXX")"
+
+output="$(
+  GITHUB_STEP_SUMMARY="$step_summary" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_COVERAGE_LABEL="go" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if grep -q "Coverage Report — go" "$step_summary" 2>/dev/null; then
+  pass "step summary contains 'Coverage Report — go'"
+else
+  fail "step summary missing 'Coverage Report — go'"
+fi
+
+rm -f "$step_summary"
+
+# ---------------------------------------------------------------------------
+# Test 43: Coverage label — no label produces original headings
+# ---------------------------------------------------------------------------
+run_test "Coverage label: no label produces original headings (backwards compat)"
+
+step_summary="$(mktemp "${TMPDIR:-/tmp}/step-summary-XXXXXX")"
+
+output="$(
+  GITHUB_STEP_SUMMARY="$step_summary" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_COVERAGE_LABEL="" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if grep -q "Coverage Summary" "$step_summary" 2>/dev/null; then
+  pass "step summary contains 'Coverage Summary'"
+else
+  fail "step summary missing 'Coverage Summary'"
+fi
+
+if grep -q "Coverage Summary —" "$step_summary" 2>/dev/null; then
+  fail "step summary should NOT contain 'Coverage Summary —' when no label is set"
+else
+  pass "step summary does not contain 'Coverage Summary —'"
+fi
+
+rm -f "$step_summary"
+
+# ---------------------------------------------------------------------------
+# Test 44: Coverage label — comment marker includes label
+# ---------------------------------------------------------------------------
+run_test "Coverage label: comment marker includes label"
+
+event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
+echo '{"pull_request": {"number": 42}}' > "$event_payload"
+
+mock_bin="$(mktemp -d "${TMPDIR:-/tmp}/mock-bin-XXXXXX")"
+curl_log="${mock_bin}/curl.log"
+cat > "${mock_bin}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/curl.log"
+if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
+  echo '{}'
+else
+  echo '[]'
+fi
+MOCKCURL
+chmod +x "${mock_bin}/curl"
+
+output="$(
+  PATH="${mock_bin}:${PATH}" \
+  GITHUB_EVENT_PATH="$event_payload" \
+  GITHUB_REPOSITORY="owner/repo" \
+  GITHUB_JOB="test-job" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_COVERAGE_LABEL="go" \
+  INPUT_GITHUB_TOKEN="fake-token" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if grep -q 'lcov-coverage-check:go' "$curl_log" 2>/dev/null; then
+  pass "curl log contains labeled marker 'lcov-coverage-check:go'"
+else
+  fail "curl log missing labeled marker"
+fi
+
+rm -f "$event_payload"
+rm -rf "$mock_bin"
+
+# ---------------------------------------------------------------------------
+# Test 45: Coverage label — different labels produce different markers
+# ---------------------------------------------------------------------------
+run_test "Coverage label: different labels produce different markers"
+
+event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
+echo '{"pull_request": {"number": 42}}' > "$event_payload"
+
+# Run with label "go"
+mock_bin_go="$(mktemp -d "${TMPDIR:-/tmp}/mock-bin-XXXXXX")"
+curl_log_go="${mock_bin_go}/curl.log"
+cat > "${mock_bin_go}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/curl.log"
+if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
+  echo '{}'
+else
+  echo '[]'
+fi
+MOCKCURL
+chmod +x "${mock_bin_go}/curl"
+
+PATH="${mock_bin_go}:${PATH}" \
+GITHUB_EVENT_PATH="$event_payload" \
+GITHUB_REPOSITORY="owner/repo" \
+GITHUB_JOB="test-job" \
+INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+INPUT_BASE_REF="" \
+INPUT_HEAD_REF="HEAD" \
+INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+INPUT_PATH="lib/" \
+INPUT_CHANGED_FILE_NO_DECREASE="true" \
+INPUT_IGNORE_PATTERNS="" \
+INPUT_COVERAGE_LABEL="go" \
+INPUT_GITHUB_TOKEN="fake-token" \
+bash "$CHECK_SCRIPT" > /dev/null 2>&1 || true
+
+# Run with label "frontend"
+mock_bin_fe="$(mktemp -d "${TMPDIR:-/tmp}/mock-bin-XXXXXX")"
+curl_log_fe="${mock_bin_fe}/curl.log"
+cat > "${mock_bin_fe}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/curl.log"
+if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
+  echo '{}'
+else
+  echo '[]'
+fi
+MOCKCURL
+chmod +x "${mock_bin_fe}/curl"
+
+PATH="${mock_bin_fe}:${PATH}" \
+GITHUB_EVENT_PATH="$event_payload" \
+GITHUB_REPOSITORY="owner/repo" \
+GITHUB_JOB="test-job" \
+INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+INPUT_BASE_REF="" \
+INPUT_HEAD_REF="HEAD" \
+INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+INPUT_PATH="lib/" \
+INPUT_CHANGED_FILE_NO_DECREASE="true" \
+INPUT_IGNORE_PATTERNS="" \
+INPUT_COVERAGE_LABEL="frontend" \
+INPUT_GITHUB_TOKEN="fake-token" \
+bash "$CHECK_SCRIPT" > /dev/null 2>&1 || true
+
+if grep -q 'lcov-coverage-check:go' "$curl_log_go" 2>/dev/null; then
+  pass "first run uses marker 'lcov-coverage-check:go'"
+else
+  fail "first run missing marker 'lcov-coverage-check:go'"
+fi
+
+if grep -q 'lcov-coverage-check:frontend' "$curl_log_fe" 2>/dev/null; then
+  pass "second run uses marker 'lcov-coverage-check:frontend'"
+else
+  fail "second run missing marker 'lcov-coverage-check:frontend'"
+fi
+
+if ! grep -q 'lcov-coverage-check:frontend' "$curl_log_go" 2>/dev/null; then
+  pass "first run does NOT contain 'frontend' marker"
+else
+  fail "first run should not contain 'frontend' marker"
+fi
+
+if ! grep -q 'lcov-coverage-check:go' "$curl_log_fe" 2>/dev/null; then
+  pass "second run does NOT contain 'go' marker"
+else
+  fail "second run should not contain 'go' marker"
+fi
+
+rm -f "$event_payload"
+rm -rf "$mock_bin_go" "$mock_bin_fe"
+
+# ---------------------------------------------------------------------------
+# Test 46: Coverage label — label is sanitized
+# ---------------------------------------------------------------------------
+run_test "Coverage label: label is sanitized"
+
+step_summary="$(mktemp "${TMPDIR:-/tmp}/step-summary-XXXXXX")"
+
+output="$(
+  GITHUB_STEP_SUMMARY="$step_summary" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_COVERAGE_LABEL="My Frontend!!" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if grep -q "Coverage Summary — my-frontend" "$step_summary" 2>/dev/null; then
+  pass "step summary contains sanitized label 'my-frontend'"
+else
+  fail "step summary missing sanitized label 'Coverage Summary — my-frontend'"
+fi
+
+if grep -q "My Frontend" "$step_summary" 2>/dev/null; then
+  fail "step summary should NOT contain unsanitized label 'My Frontend'"
+else
+  pass "step summary does not contain unsanitized label"
+fi
+
+rm -f "$step_summary"
+
+# ---------------------------------------------------------------------------
+# Test 47: Coverage label — retrieve-baseline uses labeled artifact name
+# ---------------------------------------------------------------------------
+run_test "Coverage label: retrieve-baseline uses labeled artifact name"
+
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/lcov-test-XXXXXX")"
+
+# Create a baseline LCOV file and zip it
+mkdir -p "${tmpdir}/artifact-content"
+cp "$FIXTURES_DIR/baseline.lcov.info" "${tmpdir}/artifact-content/lcov.info"
+(cd "${tmpdir}/artifact-content" && zip -q "${tmpdir}/test-artifact.zip" lcov.info)
+
+# Create event payload with PR refs
+event_payload="${tmpdir}/event.json"
+cat > "$event_payload" <<'JSON'
+{"pull_request": {"base": {"sha": "abc123base"}, "head": {"sha": "def456head"}, "number": 42}}
+JSON
+
+# Create mock curl with counter-based dispatch
+mock_bin="${tmpdir}/mock-bin"
+mkdir -p "$mock_bin"
+cp "${tmpdir}/test-artifact.zip" "${mock_bin}/test-artifact.zip"
+cat > "${mock_bin}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+mock_dir="$(dirname "$0")"
+counter_file="${mock_dir}/curl_counter"
+if [[ ! -f "$counter_file" ]]; then echo 0 > "$counter_file"; fi
+count=$(cat "$counter_file")
+count=$((count + 1))
+echo "$count" > "$counter_file"
+
+# Log all calls for debugging
+echo "CALL $count: $@" >> "${mock_dir}/curl.log"
+
+# Parse -o argument for file download
+output_file=""
+args=("$@")
+for ((i=0; i<${#args[@]}; i++)); do
+  if [[ "${args[$i]}" == "-o" ]]; then
+    output_file="${args[$((i+1))]}"
+    break
+  fi
+done
+
+case $count in
+  1) printf '%s\n%s' '{"workflow_id": 12345}' '200' ;;
+  2) echo '{"default_branch": "main"}' ;;
+  3) echo '{"workflow_runs": [{"id": 67890}]}' ;;
+  4) echo '{"artifacts": [{"name": "lcov-baseline-go", "expired": false, "archive_download_url": "https://example.com/artifact.zip"}]}' ;;
+  5) if [[ -n "$output_file" ]]; then cp "${mock_dir}/test-artifact.zip" "$output_file"; fi ;;
+esac
+MOCKCURL
+chmod +x "${mock_bin}/curl"
+
+# Set up GITHUB_OUTPUT
+github_output="${tmpdir}/github_output"
+: > "$github_output"
+
+output="$(
+  PATH="${mock_bin}:${PATH}" \
+  GITHUB_OUTPUT="$github_output" \
+  GITHUB_EVENT_PATH="$event_payload" \
+  GITHUB_REPOSITORY="owner/repo" \
+  GITHUB_RUN_ID="11111" \
+  INPUT_GITHUB_TOKEN="fake-token" \
+  INPUT_COVERAGE_LABEL="go" \
+  bash "$RETRIEVE_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if grep -q "downloaded=true" "$github_output"; then
+  pass "output contains downloaded=true"
+else
+  fail "output missing downloaded=true"
+fi
+
+# The mock only returns an artifact named "lcov-baseline-go". Since
+# downloaded=true, the script must have used the labeled artifact name.
+# Also verify a non-labeled name was NOT echoed in the notice path.
+if echo "$output" | grep -q "No lcov-baseline artifact"; then
+  fail "retrieve script used unlabeled artifact name instead of 'lcov-baseline-go'"
+else
+  pass "retrieve script used labeled artifact name (downloaded=true confirms match)"
+fi
+
+rm -rf "$tmpdir"
+
+# ---------------------------------------------------------------------------
+# Test 48: Collision detection — labeled run finds unlabeled comment
+# ---------------------------------------------------------------------------
+run_test "Collision detection: labeled run finds unlabeled comment"
+
+event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
+echo '{"pull_request": {"number": 42}}' > "$event_payload"
+
+mock_bin="$(mktemp -d "${TMPDIR:-/tmp}/mock-bin-XXXXXX")"
+curl_log="${mock_bin}/curl.log"
+
+# Create comments.json: an unlabeled comment exists but no labeled one for "go"
+cat > "${mock_bin}/comments.json" <<'COMMENTS'
+[{"id": 100, "body": "<!-- lcov-coverage-check -->\nold unlabeled report"}]
+COMMENTS
+
+cat > "${mock_bin}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/curl.log"
+if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
+  echo '{}'
+else
+  cat "$(dirname "$0")/comments.json"
+fi
+MOCKCURL
+chmod +x "${mock_bin}/curl"
+
+output="$(
+  PATH="${mock_bin}:${PATH}" \
+  GITHUB_EVENT_PATH="$event_payload" \
+  GITHUB_REPOSITORY="owner/repo" \
+  GITHUB_JOB="test-job" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_COVERAGE_LABEL="go" \
+  INPUT_GITHUB_TOKEN="fake-token" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+# The POST body should contain the warning about another check without coverage-label
+if grep -q 'coverage-label' "$curl_log" 2>/dev/null && grep -q 'without' "$curl_log" 2>/dev/null; then
+  pass "curl log contains collision warning about unlabeled check"
+else
+  fail "curl log missing collision warning about unlabeled check"
+fi
+
+# Since no existing labeled comment was found, it should POST (not PATCH)
+if grep -q '\-X POST' "$curl_log" 2>/dev/null; then
+  pass "curl used POST to create new labeled comment"
+else
+  fail "curl should have used POST (no existing labeled comment)"
+fi
+
+rm -f "$event_payload"
+rm -rf "$mock_bin"
+
+# ---------------------------------------------------------------------------
+# Test 49: Collision detection — unlabeled run finds labeled comment
+# ---------------------------------------------------------------------------
+run_test "Collision detection: unlabeled run finds labeled comment"
+
+event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
+echo '{"pull_request": {"number": 42}}' > "$event_payload"
+
+mock_bin="$(mktemp -d "${TMPDIR:-/tmp}/mock-bin-XXXXXX")"
+curl_log="${mock_bin}/curl.log"
+
+# Create comments.json: a labeled comment exists
+cat > "${mock_bin}/comments.json" <<'COMMENTS'
+[{"id": 200, "body": "<!-- lcov-coverage-check:go -->\nold labeled report"}]
+COMMENTS
+
+cat > "${mock_bin}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/curl.log"
+if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
+  echo '{}'
+else
+  cat "$(dirname "$0")/comments.json"
+fi
+MOCKCURL
+chmod +x "${mock_bin}/curl"
+
+output="$(
+  PATH="${mock_bin}:${PATH}" \
+  GITHUB_EVENT_PATH="$event_payload" \
+  GITHUB_REPOSITORY="owner/repo" \
+  GITHUB_JOB="test-job" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_COVERAGE_LABEL="" \
+  INPUT_GITHUB_TOKEN="fake-token" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+# The POST body should contain warning about other checks using coverage-label
+if grep -q 'coverage-label' "$curl_log" 2>/dev/null && grep -q 'collisions' "$curl_log" 2>/dev/null; then
+  pass "curl log contains collision warning about labeled checks"
+else
+  fail "curl log missing collision warning about labeled checks"
+fi
+
+rm -f "$event_payload"
+rm -rf "$mock_bin"
+
+# ---------------------------------------------------------------------------
+# Test 50: Collision detection — unlabeled overwrites different source
+# ---------------------------------------------------------------------------
+run_test "Collision detection: unlabeled overwrites different source"
+
+event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
+echo '{"pull_request": {"number": 42}}' > "$event_payload"
+
+mock_bin="$(mktemp -d "${TMPDIR:-/tmp}/mock-bin-XXXXXX")"
+curl_log="${mock_bin}/curl.log"
+
+# Create comments.json: an unlabeled comment from a different source
+cat > "${mock_bin}/comments.json" <<COMMENTS
+[{"id": 300, "body": "<!-- lcov-coverage-check -->\n<!-- lcov-coverage-source:job-a:other-file.lcov -->\nold report from different source"}]
+COMMENTS
+
+cat > "${mock_bin}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/curl.log"
+if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
+  echo '{}'
+else
+  cat "$(dirname "$0")/comments.json"
+fi
+MOCKCURL
+chmod +x "${mock_bin}/curl"
+
+output="$(
+  PATH="${mock_bin}:${PATH}" \
+  GITHUB_EVENT_PATH="$event_payload" \
+  GITHUB_REPOSITORY="owner/repo" \
+  GITHUB_JOB="job-b" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_COVERAGE_LABEL="" \
+  INPUT_GITHUB_TOKEN="fake-token" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+# The PATCH body should contain overwrite warning
+if grep -q 'overwritten' "$curl_log" 2>/dev/null; then
+  pass "curl log contains overwrite warning"
+else
+  fail "curl log missing overwrite warning"
+fi
+
+# Should use PATCH (updating existing comment)
+if grep -q '\-X PATCH' "$curl_log" 2>/dev/null; then
+  pass "curl used PATCH to update existing comment"
+else
+  fail "curl should have used PATCH"
+fi
+
+rm -f "$event_payload"
+rm -rf "$mock_bin"
+
+# ---------------------------------------------------------------------------
+# Test 51: No collision — same source updates itself
+# ---------------------------------------------------------------------------
+run_test "No collision: same source updates itself without warning"
+
+event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
+echo '{"pull_request": {"number": 42}}' > "$event_payload"
+
+mock_bin="$(mktemp -d "${TMPDIR:-/tmp}/mock-bin-XXXXXX")"
+curl_log="${mock_bin}/curl.log"
+
+# Create comments.json: an unlabeled comment from the same source
+cat > "${mock_bin}/comments.json" <<COMMENTS
+[{"id": 400, "body": "<!-- lcov-coverage-check -->\n<!-- lcov-coverage-source:test-job:${FIXTURES_DIR}/current.lcov.info -->\nold report from same source"}]
+COMMENTS
+
+cat > "${mock_bin}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/curl.log"
+if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
+  echo '{}'
+else
+  cat "$(dirname "$0")/comments.json"
+fi
+MOCKCURL
+chmod +x "${mock_bin}/curl"
+
+output="$(
+  PATH="${mock_bin}:${PATH}" \
+  GITHUB_EVENT_PATH="$event_payload" \
+  GITHUB_REPOSITORY="owner/repo" \
+  GITHUB_JOB="test-job" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_COVERAGE_LABEL="" \
+  INPUT_GITHUB_TOKEN="fake-token" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+# Should use PATCH (updating existing comment)
+if grep -q '\-X PATCH' "$curl_log" 2>/dev/null; then
+  pass "curl used PATCH to update existing comment"
+else
+  fail "curl should have used PATCH"
+fi
+
+# Should NOT contain any collision warning text
+if grep -q 'Warning' "$curl_log" 2>/dev/null; then
+  fail "curl log should NOT contain any warning (same source updating itself)"
+else
+  pass "no collision warning in curl log (same source)"
+fi
+
+rm -f "$event_payload"
+rm -rf "$mock_bin"
+
+# ---------------------------------------------------------------------------
+# Test 52: No false collision when ignore patterns rewrite LCOV path
+# ---------------------------------------------------------------------------
+run_test "No false collision: ignore patterns don't change source identity"
+
+event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
+echo '{"pull_request": {"number": 42}}' > "$event_payload"
+
+mock_bin="$(mktemp -d "${TMPDIR:-/tmp}/mock-bin-XXXXXX")"
+curl_log="${mock_bin}/curl.log"
+
+# Existing comment uses the original LCOV file path (not a temp filtered path)
+cat > "${mock_bin}/comments.json" <<COMMENTS
+[{"id": 500, "body": "<!-- lcov-coverage-check -->\n<!-- lcov-coverage-source:test-job:${FIXTURES_DIR}/current.lcov.info -->\nold report"}]
+COMMENTS
+
+cat > "${mock_bin}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/curl.log"
+if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
+  echo '{}'
+else
+  cat "$(dirname "$0")/comments.json"
+fi
+MOCKCURL
+chmod +x "${mock_bin}/curl"
+
+output="$(
+  PATH="${mock_bin}:${PATH}" \
+  GITHUB_EVENT_PATH="$event_payload" \
+  GITHUB_REPOSITORY="owner/repo" \
+  GITHUB_JOB="test-job" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="*.g.dart" \
+  INPUT_COVERAGE_LABEL="" \
+  INPUT_GITHUB_TOKEN="fake-token" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+# Source tag should use original path, not temp filtered path — no false collision
+if grep -q 'Warning' "$curl_log" 2>/dev/null; then
+  fail "false collision warning triggered (source tag used filtered temp path instead of original)"
+else
+  pass "no false collision warning when ignore patterns are active"
+fi
+
+rm -f "$event_payload"
+rm -rf "$mock_bin"
+
+# ---------------------------------------------------------------------------
+# Test 53: Invalid new-file-minimum-coverage is rejected
+# ---------------------------------------------------------------------------
+run_test "Invalid new-file-minimum-coverage: non-numeric value rejected"
+
+output="$(
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="abc" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -ne 0 ]]; then
+  pass "exit code is non-zero for invalid threshold"
+else
+  fail "expected non-zero exit code for invalid threshold, got 0"
+fi
+
+if echo "$output" | grep -q "new-file-minimum-coverage must be a number"; then
+  pass "output contains validation error message"
+else
+  fail "output missing validation error message"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 54: Out-of-range new-file-minimum-coverage is rejected
+# ---------------------------------------------------------------------------
+run_test "Invalid new-file-minimum-coverage: value > 100 rejected"
+
+output="$(
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="150" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -ne 0 ]]; then
+  pass "exit code is non-zero for out-of-range threshold"
+else
+  fail "expected non-zero exit code for threshold > 100, got 0"
+fi
+
+if echo "$output" | grep -q "between 0 and 100"; then
+  pass "output mentions valid range"
+else
+  fail "output missing range error message"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 55: Valid decimal new-file-minimum-coverage is accepted
+# ---------------------------------------------------------------------------
+run_test "Valid decimal new-file-minimum-coverage: accepted"
+
+output="$(
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="75.5" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0 for valid decimal threshold"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 56: Source tag sanitizes HTML comment sequences
+# ---------------------------------------------------------------------------
+run_test "Source tag: double-dash in GITHUB_JOB is sanitized"
+
+event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
+echo '{"pull_request": {"number": 42}}' > "$event_payload"
+
+mock_bin="$(mktemp -d "${TMPDIR:-/tmp}/mock-bin-XXXXXX")"
+curl_log="${mock_bin}/curl.log"
+cat > "${mock_bin}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/curl.log"
+if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
+  echo '{}'
+else
+  echo '[]'
+fi
+MOCKCURL
+chmod +x "${mock_bin}/curl"
+
+# Use a job name with double-dashes (which would break HTML comments if unsanitized)
+output="$(
+  PATH="${mock_bin}:${PATH}" \
+  GITHUB_EVENT_PATH="$event_payload" \
+  GITHUB_REPOSITORY="owner/repo" \
+  GITHUB_JOB="ci--build--job" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="" \
+  INPUT_COVERAGE_LABEL="" \
+  INPUT_GITHUB_TOKEN="fake-token" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+# The source tag should have double-dashes collapsed to single-dashes
+if grep -q 'lcov-coverage-source:ci-build-job:' "$curl_log" 2>/dev/null; then
+  pass "source tag has double-dashes sanitized to single-dashes"
+else
+  if grep -q 'lcov-coverage-source:ci--build--job:' "$curl_log" 2>/dev/null; then
+    fail "source tag still contains unsanitized double-dashes"
+  else
+    fail "source tag not found in curl log"
+  fi
+fi
+
+rm -f "$event_payload"
+rm -rf "$mock_bin"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo ""

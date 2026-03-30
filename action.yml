@@ -23,6 +23,10 @@ inputs:
     description: "File patterns to exclude from coverage checks (one glob pattern per line)"
     required: false
     default: ""
+  coverage-label:
+    description: "Label to distinguish multiple coverage checks (e.g., 'go', 'frontend'). Allows separate PR comments and baseline artifacts per check."
+    required: false
+    default: ""
   github-token:
     description: "GitHub token for PR comments and artifact management. If empty, no comments or artifacts."
     required: false
@@ -38,6 +42,9 @@ outputs:
   passed:
     description: "'true' or 'false'"
     value: ${{ steps.coverage.outputs.passed }}
+  coverage-label:
+    description: "Sanitized coverage label (may differ from input)"
+    value: ${{ steps.coverage.outputs.coverage-label }}
   baseline-artifact-downloaded:
     description: "'true' if baseline was auto-retrieved from a previous run"
     value: ${{ steps.retrieve-baseline.outputs.downloaded }}
@@ -55,6 +62,7 @@ runs:
       shell: bash
       env:
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
+        INPUT_COVERAGE_LABEL: ${{ inputs.coverage-label }}
       run: "${{ github.action_path }}/scripts/retrieve-baseline.sh"
 
     - name: Check coverage
@@ -69,6 +77,7 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
         INPUT_CHANGED_FILE_NO_DECREASE: ${{ inputs.changed-file-no-decrease }}
         INPUT_IGNORE_PATTERNS: ${{ inputs.ignore-patterns }}
+        INPUT_COVERAGE_LABEL: ${{ inputs.coverage-label }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
       run: "${{ github.action_path }}/scripts/check-coverage.sh"
 
@@ -76,7 +85,7 @@ runs:
       if: ${{ !cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
       uses: actions/upload-artifact@v7
       with:
-        name: lcov-baseline
+        name: lcov-baseline${{ steps.coverage.outputs.coverage-label && format('-{0}', steps.coverage.outputs.coverage-label) || '' }}
         path: ${{ inputs.lcov-file }}
         overwrite: true
 
@@ -84,6 +93,6 @@ runs:
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       uses: actions/upload-artifact@v7
       with:
-        name: lcov-coverage
+        name: lcov-coverage${{ steps.coverage.outputs.coverage-label && format('-{0}', steps.coverage.outputs.coverage-label) || '' }}
         path: ${{ inputs.lcov-file }}
         overwrite: true

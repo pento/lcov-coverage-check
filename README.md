@@ -97,6 +97,32 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
+### Multi-language workflows
+
+If your repo produces multiple LCOV files (e.g., Go backend + TypeScript frontend), use `coverage-label` to run the action multiple times without conflicts:
+
+```yaml
+- name: Check Go coverage
+  uses: pento/lcov-coverage-check@main
+  with:
+    lcov-file: go-coverage.lcov
+    coverage-label: go
+    path: ""
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+
+- name: Check TypeScript coverage
+  uses: pento/lcov-coverage-check@main
+  with:
+    lcov-file: ts-coverage.lcov
+    coverage-label: frontend
+    path: "src/"
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+```
+
+Each label gets its own PR comment (identified by a label-specific HTML marker), baseline artifact (e.g., `lcov-baseline-go`), and PR coverage artifact (e.g., `lcov-coverage-frontend`).
+
+Labels are normalized to lowercase alphanumeric characters and hyphens. If the action detects that multiple coverage checks are running without consistent `coverage-label` usage (e.g., some steps have labels and others don't), a visible warning is added to the PR comment.
+
 ## Inputs
 
 | Input                       | Required | Default              | Description                                                                               |
@@ -106,6 +132,7 @@ jobs:
 | `path`                      | no       | `lib/`               | Path prefixes for file-level checks, one per line. Empty = all paths                      |
 | `changed-file-no-decrease`  | no       | `true`               | Require that per-file coverage of modified files does not decrease vs baseline            |
 | `ignore-patterns`           | no       | `''`                 | File patterns to exclude from coverage checks (one glob pattern per line)                 |
+| `coverage-label`            | no       | `''`                 | Label to distinguish multiple coverage checks. Enables separate PR comments and artifacts |
 | `github-token`              | no       | `''`                 | GitHub token for PR comments and artifact management. If empty, runs in summary-only mode |
 
 ## Outputs
@@ -115,6 +142,7 @@ jobs:
 | `overall-coverage`             | Current overall coverage percentage (e.g., `87.50`)         |
 | `baseline-coverage`            | Baseline coverage percentage (empty if summary-only)        |
 | `passed`                       | `'true'` or `'false'`                                       |
+| `coverage-label`               | Sanitized coverage label (may differ from input)            |
 | `baseline-artifact-downloaded` | `'true'` if baseline was auto-retrieved from a previous run |
 
 ## Automatic Baseline Management
@@ -124,6 +152,8 @@ When `github-token` is provided, the action automatically manages baseline cover
 1. **On pushes to the default branch** (e.g., `main`): the current LCOV file is uploaded as an `lcov-baseline` artifact, overwriting any previous baseline.
 2. **On pull requests**: the action retrieves the `lcov-baseline` artifact from the latest successful default-branch run of the same workflow. It also extracts `base.sha` and `head.sha` from the PR event payload for `git diff` operations.
 3. **On pull requests**: the current LCOV file is also uploaded as an `lcov-coverage` artifact.
+
+When `coverage-label` is set, artifact names are suffixed (e.g., `lcov-baseline-go`, `lcov-coverage-frontend`). Each label tracks its own independent baseline.
 
 If no baseline artifact is found (e.g., first run), the action falls back to summary-only mode gracefully.
 
@@ -171,7 +201,7 @@ Common examples:
 
 ### PR comments
 
-When `github-token` is provided and the action runs in a pull request context, a markdown comment is posted (or updated) on the PR. The comment is identified by a hidden HTML marker so it gets updated on subsequent pushes rather than creating duplicate comments.
+When `github-token` is provided and the action runs in a pull request context, a markdown comment is posted (or updated) on the PR. The comment is identified by a hidden HTML marker so it gets updated on subsequent pushes rather than creating duplicate comments. When `coverage-label` is provided, each label gets its own comment, preventing multiple coverage checks from overwriting each other.
 
 ### Shallow clones and fetch-depth
 
@@ -188,6 +218,7 @@ For new/modified file detection, the action needs access to both the base and he
 - **Modified file not in baseline LCOV**: Skipped (new to coverage tracking)
 - **Modified file not in current LCOV**: Treated as 0% coverage
 - **Ignored files**: Completely excluded from LCOV data, overall coverage, and per-file checks
+- **Changing a `coverage-label`**: Renaming a label orphans the old comment (it won't be updated or deleted) and the old baseline artifact is no longer used. The new label starts fresh.
 
 ## Local development
 
@@ -202,6 +233,7 @@ INPUT_NEW_FILE_MINIMUM_COVERAGE=80 \
 INPUT_PATH=lib/ \
 INPUT_CHANGED_FILE_NO_DECREASE=true \
 INPUT_IGNORE_PATTERNS="" \
+INPUT_COVERAGE_LABEL="" \
 INPUT_GITHUB_TOKEN="" \
   ./scripts/check-coverage.sh
 ```

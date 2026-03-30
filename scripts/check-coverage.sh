@@ -16,6 +16,7 @@ set -euo pipefail
 #   INPUT_PATH                      - Path prefixes, one per line (default: lib/)
 #   INPUT_CHANGED_FILE_NO_DECREASE  - Require no per-file decrease (default: true)
 #   INPUT_IGNORE_PATTERNS           - Newline-separated glob patterns to exclude (optional)
+#   INPUT_COVERAGE_LABEL            - Label to distinguish multiple coverage checks (optional)
 #   INPUT_GITHUB_TOKEN              - Token for PR comments (optional)
 #
 # GitHub Actions environment:
@@ -24,19 +25,6 @@ set -euo pipefail
 #   GITHUB_REPOSITORY     - owner/repo
 #   GITHUB_EVENT_PATH     - Path to event payload JSON (set by Actions)
 ###############################################################################
-
-# ---------------------------------------------------------------------------
-# Defaults
-# ---------------------------------------------------------------------------
-INPUT_LCOV_FILE="${INPUT_LCOV_FILE:-}"
-INPUT_LCOV_BASE="${INPUT_LCOV_BASE:-}"
-INPUT_BASE_REF="${INPUT_BASE_REF:-}"
-INPUT_HEAD_REF="${INPUT_HEAD_REF:-HEAD}"
-INPUT_NEW_FILE_MINIMUM_COVERAGE="${INPUT_NEW_FILE_MINIMUM_COVERAGE:-80}"
-INPUT_PATH="${INPUT_PATH:-lib/}"
-INPUT_CHANGED_FILE_NO_DECREASE="${INPUT_CHANGED_FILE_NO_DECREASE:-true}"
-INPUT_IGNORE_PATTERNS="${INPUT_IGNORE_PATTERNS:-}"
-INPUT_GITHUB_TOKEN="${INPUT_GITHUB_TOKEN:-}"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -124,6 +112,34 @@ format_pct() {
   awk -v v="$1" 'BEGIN { printf "%.2f", v + 0 }'
 }
 
+# ---------------------------------------------------------------------------
+# Defaults & validation
+# ---------------------------------------------------------------------------
+INPUT_LCOV_FILE="${INPUT_LCOV_FILE:-}"
+INPUT_LCOV_BASE="${INPUT_LCOV_BASE:-}"
+INPUT_BASE_REF="${INPUT_BASE_REF:-}"
+INPUT_HEAD_REF="${INPUT_HEAD_REF:-HEAD}"
+INPUT_NEW_FILE_MINIMUM_COVERAGE="${INPUT_NEW_FILE_MINIMUM_COVERAGE:-80}"
+if ! [[ "$INPUT_NEW_FILE_MINIMUM_COVERAGE" =~ ^[0-9]+([.][0-9]+)?$ ]] \
+   || compare_floats "$INPUT_NEW_FILE_MINIMUM_COVERAGE" "gt" "100"; then
+  echo "::error::new-file-minimum-coverage must be a number between 0 and 100 (got: '${INPUT_NEW_FILE_MINIMUM_COVERAGE}')"
+  exit 1
+fi
+INPUT_PATH="${INPUT_PATH:-lib/}"
+INPUT_CHANGED_FILE_NO_DECREASE="${INPUT_CHANGED_FILE_NO_DECREASE:-true}"
+INPUT_IGNORE_PATTERNS="${INPUT_IGNORE_PATTERNS:-}"
+INPUT_COVERAGE_LABEL="${INPUT_COVERAGE_LABEL:-}"
+INPUT_GITHUB_TOKEN="${INPUT_GITHUB_TOKEN:-}"
+
+# Sanitize coverage label: lowercase, alphanumeric + hyphens only
+if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
+  INPUT_COVERAGE_LABEL="$(printf '%s' "$INPUT_COVERAGE_LABEL" | tr '[:upper:]' '[:lower:]' | tr '\n\r' '-' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
+  if [[ -z "$INPUT_COVERAGE_LABEL" ]]; then
+    echo "::warning::coverage-label contained only invalid characters and was discarded"
+  fi
+fi
+write_output "coverage-label" "$INPUT_COVERAGE_LABEL"
+
 # should_ignore_file PATH PATTERNS
 #   Returns 0 (true) if PATH matches any of the newline-separated glob patterns.
 should_ignore_file() {
@@ -190,6 +206,10 @@ extract_lcov_extensions() {
 failed=false
 failure_messages=()
 
+# Preserve original LCOV path for stable source identification in PR comments
+# (filter_lcov_file rewrites INPUT_LCOV_FILE to a temp path when ignore patterns are set)
+ORIGINAL_LCOV_FILE="$INPUT_LCOV_FILE"
+
 # --- Filter LCOV files by ignore patterns ---
 if [[ -n "$INPUT_IGNORE_PATTERNS" ]]; then
   echo "== Ignore Patterns =="
@@ -236,7 +256,11 @@ if [[ -z "$INPUT_LCOV_BASE" ]]; then
   echo ""
   echo "== Summary-only mode (no baseline provided) =="
 
-  summary_md="## Coverage Summary\n\n"
+  if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
+    summary_md="## Coverage Summary — ${INPUT_COVERAGE_LABEL}\n\n"
+  else
+    summary_md="## Coverage Summary\n\n"
+  fi
   summary_md+="**Overall coverage: ${cur_pct_fmt}%** (${cur_hit}/${cur_found} lines)\n\n"
   summary_md+="| File | Coverage | Lines |\n"
   summary_md+="|------|----------|-------|\n"
@@ -489,7 +513,11 @@ fi
 result_icon="$( [[ "$failed" == "true" ]] && echo "❌" || echo "✅" )"
 result_text="$( [[ "$failed" == "true" ]] && echo "FAIL" || echo "PASS" )"
 
-summary_md="## ${result_icon} Coverage Report\n\n"
+if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
+  summary_md="## ${result_icon} Coverage Report — ${INPUT_COVERAGE_LABEL}\n\n"
+else
+  summary_md="## ${result_icon} Coverage Report\n\n"
+fi
 summary_md+="| Metric | Value |\n"
 summary_md+="|--------|-------|\n"
 summary_md+="| Current coverage | **${cur_pct_fmt}%** (${cur_hit}/${cur_found}) |\n"
@@ -530,15 +558,62 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number"
   echo ""
   echo "-- Posting PR Comment --"
 
-  comment_marker="<!-- lcov-coverage-check -->"
-  comment_body="${comment_marker}\n${summary_md}"
-  comment_body_json="$(echo -e "$comment_body" | jq -Rs '.')"
+  # Build comment marker (namespaced by label if provided)
+  if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
+    comment_marker="<!-- lcov-coverage-check:${INPUT_COVERAGE_LABEL} -->"
+  else
+    comment_marker="<!-- lcov-coverage-check -->"
+  fi
 
-  # Look for existing comment
-  existing_comment_id="$(
+  # Source tag to detect when different runs share the same (unlabeled) marker
+  # Collapse runs of 2+ hyphens to prevent breaking HTML comment structure
+  safe_job="$(echo "${GITHUB_JOB:-unknown}" | sed 's/--*/-/g')"
+  safe_lcov="$(echo "$ORIGINAL_LCOV_FILE" | sed 's/--*/-/g')"
+  source_id="${safe_job}:${safe_lcov}"
+  source_tag="<!-- lcov-coverage-source:${source_id} -->"
+
+  # Fetch all PR comments once for both collision detection and existing-comment lookup
+  all_comments="$(
     curl -s -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
       -H "Accept: application/vnd.github+json" \
-      "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments?per_page=100" \
+      "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments?per_page=100"
+  )"
+
+  # --- Collision detection ---
+  collision_warning=""
+
+  # Find all comments that start with any lcov-coverage-check marker
+  all_coverage_markers="$(echo "$all_comments" | jq -r '.[].body' 2>/dev/null \
+    | grep -o '<!-- lcov-coverage-check[^>]*-->' || true)"
+
+  if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
+    # Current run is labeled — warn if an unlabeled comment exists
+    if echo "$all_coverage_markers" | grep -qx '<!-- lcov-coverage-check -->'; then
+      collision_warning="\n\n> **Warning:** Another coverage check on this PR runs without \`coverage-label\`. Add labels to all coverage check steps to prevent collisions.\n"
+    fi
+  else
+    # Current run is unlabeled — check for two types of collision
+    # 1. Labeled comments exist (partial label adoption)
+    if echo "$all_coverage_markers" | grep -q '<!-- lcov-coverage-check:'; then
+      collision_warning="\n\n> **Warning:** Other coverage checks on this PR use \`coverage-label\`. Add a \`coverage-label\` to this step to prevent comment collisions.\n"
+    fi
+
+    # 2. Existing unlabeled comment from a different source (overwrite)
+    existing_source="$(echo "$all_comments" \
+      | jq -r ".[] | select(.body | startswith(\"${comment_marker}\")) | .body" \
+      | grep -o '<!-- lcov-coverage-source:[^>]*-->' \
+      | head -1 || true)"
+    if [[ -n "$existing_source" && "$existing_source" != "$source_tag" ]]; then
+      # Different source is about to be overwritten — this is the strongest signal
+      collision_warning="\n\n> **Warning:** This comment was overwritten by a different coverage check. Use \`coverage-label\` on each step to give them separate comments.\n"
+    fi
+  fi
+
+  comment_body="${comment_marker}\n${source_tag}\n${summary_md}${collision_warning}"
+  comment_body_json="$(echo -e "$comment_body" | jq -Rs '.')"
+
+  # Look for existing comment with our specific marker
+  existing_comment_id="$(echo "$all_comments" \
     | jq -r ".[] | select(.body | startswith(\"${comment_marker}\")) | .id" \
     | head -1 || true
   )"
