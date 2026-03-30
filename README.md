@@ -119,21 +119,21 @@ If your repo produces multiple LCOV files (e.g., Go backend + TypeScript fronten
     github-token: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-Each label gets its own PR comment (identified by a label-specific HTML marker), baseline artifact (e.g., `lcov-baseline-go`), and PR coverage artifact (e.g., `lcov-coverage-frontend`).
+All labels share a single consolidated PR comment, with each label occupying its own section that is independently updated. Each label also gets its own baseline artifact (e.g., `lcov-baseline-go`) and PR coverage artifact (e.g., `lcov-coverage-frontend`).
 
-Labels are normalized to lowercase alphanumeric characters and hyphens. If the action detects that multiple coverage checks are running without consistent `coverage-label` usage (e.g., some steps have labels and others don't), a visible warning is added to the PR comment.
+Labels are normalized to lowercase alphanumeric characters and hyphens.
 
 ## Inputs
 
-| Input                       | Required | Default              | Description                                                                               |
-| --------------------------- | -------- | -------------------- | ----------------------------------------------------------------------------------------- |
-| `lcov-file`                 | no       | `coverage/lcov.info` | Path to current LCOV coverage file                                                        |
-| `new-file-minimum-coverage` | no       | `80`                 | Minimum coverage percentage for new files (0-100)                                         |
-| `path`                      | no       | `lib/`               | Path prefixes for file-level checks, one per line. Empty = all paths                      |
-| `changed-file-no-decrease`  | no       | `true`               | Require that per-file coverage of modified files does not decrease vs baseline            |
-| `ignore-patterns`           | no       | `''`                 | File patterns to exclude from coverage checks (one glob pattern per line)                 |
-| `coverage-label`            | no       | `''`                 | Label to distinguish multiple coverage checks. Enables separate PR comments and artifacts |
-| `github-token`              | no       | `''`                 | GitHub token for PR comments and artifact management. If empty, runs in summary-only mode |
+| Input                       | Required | Default              | Description                                                                                                                                 |
+| --------------------------- | -------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lcov-file`                 | no       | `coverage/lcov.info` | Path to current LCOV coverage file                                                                                                          |
+| `new-file-minimum-coverage` | no       | `80`                 | Minimum coverage percentage for new files (0-100)                                                                                           |
+| `path`                      | no       | `lib/`               | Path prefixes for file-level checks, one per line. Empty = all paths                                                                        |
+| `changed-file-no-decrease`  | no       | `true`               | Require that per-file coverage of modified files does not decrease vs baseline                                                              |
+| `ignore-patterns`           | no       | `''`                 | File patterns to exclude from coverage checks (one glob pattern per line)                                                                   |
+| `coverage-label`            | no       | `''`                 | Label to distinguish multiple coverage checks. Each label gets its own section in the consolidated PR comment and its own baseline artifact |
+| `github-token`              | no       | `''`                 | GitHub token for PR comments and artifact management. If empty, runs in summary-only mode                                                   |
 
 ## Outputs
 
@@ -201,7 +201,7 @@ Common examples:
 
 ### PR comments
 
-When `github-token` is provided and the action runs in a pull request context, a markdown comment is posted (or updated) on the PR. The comment is identified by a hidden HTML marker so it gets updated on subsequent pushes rather than creating duplicate comments. When `coverage-label` is provided, each label gets its own comment, preventing multiple coverage checks from overwriting each other.
+When `github-token` is provided and the action runs in a pull request context, a markdown comment is posted (or updated) on the PR. All coverage checks share a single consolidated comment, identified by a hidden HTML marker. Each `coverage-label` occupies its own section within the comment, independently updated via a read-modify-write cycle with retry to handle concurrent updates. Old-format per-label comments (from previous versions) are automatically cleaned up on the first run.
 
 ### Shallow clones and fetch-depth
 
@@ -218,16 +218,17 @@ For new/modified file detection, the action needs access to both the base and he
 - **Modified file not in baseline LCOV**: Skipped (new to coverage tracking)
 - **Modified file not in current LCOV**: Treated as 0% coverage
 - **Ignored files**: Completely excluded from LCOV data, overall coverage, and per-file checks
-- **Changing a `coverage-label`**: Renaming a label orphans the old comment (it won't be updated or deleted) and the old baseline artifact is no longer used. The new label starts fresh.
+- **Changing a `coverage-label`**: Renaming a label leaves the old section in the consolidated comment (it won't be updated or removed until the comment is recreated). The old baseline artifact is no longer used. The new label starts fresh.
 
 ## Project structure
 
-```
+```txt
 scripts/
   lib/
     common.sh          # Shared helpers (write_output, append_summary)
     lcov.sh            # LCOV parsing and numeric helpers
     filter.sh          # File filtering / ignore-pattern logic
+    comment.sh         # PR comment section management
   check-coverage.sh    # Main coverage checking logic
   retrieve-baseline.sh # Baseline artifact retrieval
 test/

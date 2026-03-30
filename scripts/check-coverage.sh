@@ -30,6 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 source "${SCRIPT_DIR}/lib/lcov.sh"
 source "${SCRIPT_DIR}/lib/filter.sh"
+source "${SCRIPT_DIR}/lib/comment.sh"
 
 # ---------------------------------------------------------------------------
 # Temp-file cleanup — filter_lcov_file creates temp files that we must remove
@@ -427,21 +428,26 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number"
   echo ""
   echo "-- Posting PR Comment --"
 
-  # Build comment marker (namespaced by label if provided)
+  # All coverage labels share one comment, identified by a single marker
+  comment_marker="<!-- lcov-coverage-check -->"
+
+  # Section key: the coverage label, or "default" for unlabeled runs
   if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
-    comment_marker="<!-- lcov-coverage-check:${INPUT_COVERAGE_LABEL} -->"
+    section_key="$INPUT_COVERAGE_LABEL"
   else
-    comment_marker="<!-- lcov-coverage-check -->"
+    section_key="default"
   fi
 
-  # Source tag to detect when different runs share the same (unlabeled) marker
+  # Source tag embedded per-section (for debugging which job produced a section)
   # Collapse runs of 2+ hyphens to prevent breaking HTML comment structure
   safe_job="$(echo "${GITHUB_JOB:-unknown}" | sed 's/--*/-/g')"
   safe_lcov="$(echo "$ORIGINAL_LCOV_FILE" | sed 's/--*/-/g')"
   source_id="${safe_job}:${safe_lcov}"
-  source_tag="<!-- lcov-coverage-source:${source_id} -->"
 
-  # Fetch PR comments (paginated, early-exit) for collision detection and existing-comment lookup
+  # Build this run's section (convert literal \n in summary_md to actual newlines)
+  new_section="$(build_section "$section_key" "$source_id" "$(printf '%b' "$summary_md")")"
+
+  # Fetch PR comments (paginated, early-exit) for existing-comment lookup
   all_comments="[]"
   comments_page=1
   while true; do
@@ -462,12 +468,6 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number"
     all_comments="$(jq -s '.[0] + .[1]' <<< "${all_comments}
 ${page_response}")"
 
-    # If this page contains our marker, we have enough data — stop early
-    if echo "$page_response" | jq -e ".[] | select(.body | startswith(\"${comment_marker}\"))" > /dev/null 2>&1; then
-      rm -f "$comments_header_file"
-      break
-    fi
-
     # Check Link header for next page
     has_next="$(grep -i '^link:' "$comments_header_file" | grep -o 'rel="next"' || true)"
     rm -f "$comments_header_file"
@@ -481,61 +481,87 @@ ${page_response}")"
     fi
   done
 
-  # --- Collision detection ---
-  collision_warning=""
-
-  # Find all comments that start with any lcov-coverage-check marker
-  all_coverage_markers="$(echo "$all_comments" | jq -r '.[].body' 2>/dev/null \
-    | grep -o '<!-- lcov-coverage-check[^>]*-->' || true)"
-
-  if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
-    # Current run is labeled — warn if an unlabeled comment exists
-    if echo "$all_coverage_markers" | grep -qx '<!-- lcov-coverage-check -->'; then
-      collision_warning="\n\n> **Warning:** Another coverage check on this PR runs without \`coverage-label\`. Add labels to all coverage check steps to prevent collisions.\n"
-    fi
-  else
-    # Current run is unlabeled — check for two types of collision
-    # 1. Labeled comments exist (partial label adoption)
-    if echo "$all_coverage_markers" | grep -q '<!-- lcov-coverage-check:'; then
-      collision_warning="\n\n> **Warning:** Other coverage checks on this PR use \`coverage-label\`. Add a \`coverage-label\` to this step to prevent comment collisions.\n"
-    fi
-
-    # 2. Existing unlabeled comment from a different source (overwrite)
-    existing_source="$(echo "$all_comments" \
-      | jq -r ".[] | select(.body | startswith(\"${comment_marker}\")) | .body" \
-      | grep -o '<!-- lcov-coverage-source:[^>]*-->' \
-      | head -1 || true)"
-    if [[ -n "$existing_source" && "$existing_source" != "$source_tag" ]]; then
-      # Different source is about to be overwritten — this is the strongest signal
-      collision_warning="\n\n> **Warning:** This comment was overwritten by a different coverage check. Use \`coverage-label\` on each step to give them separate comments.\n"
-    fi
-  fi
-
-  comment_body="${comment_marker}\n${source_tag}\n${summary_md}${collision_warning}"
-  comment_body_json="$(echo -e "$comment_body" | jq -Rs '.')"
-
-  # Look for existing comment with our specific marker
+  # Look for existing consolidated comment
   existing_comment_id="$(echo "$all_comments" \
     | jq -r ".[] | select(.body | startswith(\"${comment_marker}\")) | .id" \
     | head -1 || true
   )"
 
   if [[ -n "$existing_comment_id" && "$existing_comment_id" != "null" ]]; then
-    # Update existing comment
-    curl -s -X PATCH \
-      -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
-      -H "Accept: application/vnd.github+json" \
-      "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/comments/${existing_comment_id}" \
-      -d "{\"body\": ${comment_body_json}}" > /dev/null
-    echo "  Updated existing PR comment (ID: ${existing_comment_id})"
+    # Merge our section into the existing comment's body
+    existing_body="$(echo "$all_comments" \
+      | jq -r --argjson cid "$existing_comment_id" '.[] | select(.id == $cid) | .body')"
+    comment_body="$(replace_section "$existing_body" "$section_key" "$new_section")"
+    comment_body_json="$(printf '%s' "$comment_body" | jq -Rs '.')"
+
+    # Update with retry: re-read and retry if a concurrent writer clobbered our section
+    max_retries=3
+    section_verified=false
+    for attempt in $(seq 1 $max_retries); do
+      curl -s -X PATCH \
+        -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
+        -H "Accept: application/vnd.github+json" \
+        "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/comments/${existing_comment_id}" \
+        -d "{\"body\": ${comment_body_json}}" > /dev/null
+
+      # Verify our section survived (another writer may have clobbered it)
+      verify_body="$(
+        curl -s \
+          -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
+          -H "Accept: application/vnd.github+json" \
+          "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/comments/${existing_comment_id}" \
+          | jq -r '.body // ""' || true
+      )"
+      if echo "$verify_body" | grep -q "<!-- lcov-section:${section_key} -->"; then
+        section_verified=true
+        break
+      fi
+
+      if [[ $attempt -lt $max_retries ]]; then
+        echo "  Retry ${attempt}: comment was modified concurrently, re-merging..."
+        comment_body="$(replace_section "$verify_body" "$section_key" "$new_section")"
+        comment_body_json="$(printf '%s' "$comment_body" | jq -Rs '.')"
+      fi
+    done
+    if [[ "$section_verified" == "true" ]]; then
+      echo "  Updated existing PR comment (ID: ${existing_comment_id})"
+    else
+      echo "::warning::PR comment updated but section verification failed after ${max_retries} retries (possible concurrent update conflict)"
+      echo "  Updated existing PR comment (ID: ${existing_comment_id}) — verification failed"
+    fi
   else
-    # Create new comment
+    # Create new comment with just this section
+    comment_body="$(printf '%s\n%s\n' "${comment_marker}" "${new_section}")"
+    comment_body_json="$(printf '%s' "$comment_body" | jq -Rs '.')"
+
     curl -s -X POST \
       -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
       -H "Accept: application/vnd.github+json" \
       "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" \
       -d "{\"body\": ${comment_body_json}}" > /dev/null
     echo "  Created new PR comment"
+  fi
+
+  # Clean up old-format per-label comments (migration from previous version)
+  old_label_comment_ids="$(echo "$all_comments" \
+    | jq -r '.[] | select(.body | test("^<!-- lcov-coverage-check:")) | .id' 2>/dev/null || true)"
+  if [[ -n "$old_label_comment_ids" ]]; then
+    while IFS= read -r old_id; do
+      [[ -z "$old_id" ]] && continue
+      delete_status="$(curl -s -o /dev/null -w '%{http_code}' -X DELETE \
+        -H "Authorization: token ${INPUT_GITHUB_TOKEN}" \
+        -H "Accept: application/vnd.github+json" \
+        "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/comments/${old_id}" \
+        || true)"
+      if [[ ! "$delete_status" =~ ^[0-9]+$ ]]; then
+        delete_status="000"
+      fi
+      if [[ "$delete_status" -ge 200 && "$delete_status" -lt 300 ]]; then
+        echo "  Cleaned up old-format comment (ID: ${old_id})"
+      else
+        echo "  Warning: failed to clean up old-format comment (ID: ${old_id}), HTTP status: ${delete_status}"
+      fi
+    done <<< "$old_label_comment_ids"
   fi
 fi
 

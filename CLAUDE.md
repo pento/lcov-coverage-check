@@ -10,6 +10,7 @@ A reusable composite GitHub Action (pure bash, no Node.js) that parses LCOV cove
   - `common.sh` — `write_output()`, `append_summary()`
   - `lcov.sh` — LCOV parsing (`parse_lcov_overall`, `parse_lcov_per_file`), numeric helpers (`coverage_pct`, `compare_floats`, `format_pct`), extension extraction
   - `filter.sh` — Ignore-pattern matching (`should_ignore_file`, `filter_lcov_file`)
+  - `comment.sh` — PR comment section management (`build_section`, `extract_section_keys`, `replace_section`). All coverage labels share one consolidated PR comment; each label occupies its own section, independently updated via read-modify-write with retry.
 - **`action.yml`** — GitHub Actions composite action definition. Calls `retrieve-baseline.sh` then `check-coverage.sh`.
 
 ## Testing
@@ -18,7 +19,7 @@ A reusable composite GitHub Action (pure bash, no Node.js) that parses LCOV cove
 ./test/run-tests.sh
 ```
 
-Tests live in `test/tests/*.sh` (13 files, ~59 tests). They are **sourced** by `test/run-tests.sh`, not executed as subprocesses. Test helpers are in `test/helpers/`. Fixtures are in `test/fixtures/`.
+Tests live in `test/tests/*.sh` (14 files, ~62 tests). They are **sourced** by `test/run-tests.sh`, not executed as subprocesses. Test helpers are in `test/helpers/`. Fixtures are in `test/fixtures/`.
 
 ## Key conventions
 
