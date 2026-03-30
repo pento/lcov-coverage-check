@@ -26,7 +26,7 @@ build_section() {
 #   Prints newline-separated section keys found in BODY.
 extract_section_keys() {
   local body="$1"
-  echo "$body" | grep -o '<!-- lcov-section:[^ ]*' | sed 's/<!-- lcov-section://' || true
+  echo "$body" | grep -o '^<!-- lcov-section:[^>]* -->' | sed -e 's/^<!-- lcov-section://' -e 's/ -->$//' || true
 }
 
 # replace_section BODY KEY NEW_SECTION

@@ -559,6 +559,9 @@ ${page_response}")"
         -H "Accept: application/vnd.github+json" \
         "${GITHUB_API_URL:-https://api.github.com}/repos/${GITHUB_REPOSITORY}/issues/comments/${old_id}" \
         || true)"
+      if [[ ! "$delete_status" =~ ^[0-9]+$ ]]; then
+        delete_status="000"
+      fi
       if [[ "$delete_status" -ge 200 && "$delete_status" -lt 300 ]]; then
         echo "  Cleaned up old-format comment (ID: ${old_id})"
       else
