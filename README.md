@@ -152,7 +152,7 @@ When `github-token` is provided, the action automatically manages baseline cover
 2. **On pull requests**: the action retrieves the `lcov-baseline` artifact from the latest successful default-branch run of the same workflow. It also extracts `base.sha` and `head.sha` from the PR event payload for `git diff` operations.
 3. **On pull requests**: the current LCOV file is also uploaded as an `lcov-coverage` artifact.
 
-When `coverage-label` is set, artifact names are suffixed (e.g., `lcov-baseline-go`, `lcov-coverage-frontend`). Each label tracks its own independent baseline.
+When `coverage-label` is set, artifact names are suffixed (e.g., `lcov-baseline-go`, `lcov-coverage-frontend`). Each label tracks its own independent baseline. **Note:** adding a `coverage-label` to an existing workflow is a breaking change — the first PR will run in summary-only mode until the default branch creates the new labeled baseline artifact.
 
 If no baseline artifact is found (e.g., first run), the action falls back to summary-only mode gracefully.
 
