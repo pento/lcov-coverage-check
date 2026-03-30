@@ -62,6 +62,19 @@ else
   fail "curl not called with correct PR number"
 fi
 
+# Verify the comment body uses section markers (default section for unlabeled runs)
+if grep -q 'lcov-section:default' "$curl_log" 2>/dev/null; then
+  pass "comment body contains section marker for default"
+else
+  fail "comment body missing section marker 'lcov-section:default'"
+fi
+
+if grep -q 'lcov-section-end:default' "$curl_log" 2>/dev/null; then
+  pass "comment body contains section end marker for default"
+else
+  fail "comment body missing section end marker 'lcov-section-end:default'"
+fi
+
 rm -f "$event_payload"
 rm -rf "$mock_bin"
 
@@ -133,14 +146,15 @@ fi
 rm -f "$event_payload"
 
 # ---------------------------------------------------------------------------
-# Test 14: PR comment updates existing comment
+# Test 14: PR comment updates existing consolidated comment
 # ---------------------------------------------------------------------------
 run_test "PR comment updates existing comment when marker found"
 
 event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
 echo '{"pull_request": {"number": 7}}' > "$event_payload"
 
-# Mock curl that returns an existing comment on GET
+# Mock curl that returns an existing consolidated comment on GET,
+# and returns the updated body on verify GET
 mock_bin="$(mktemp -d "${TMPDIR:-/tmp}/mock-bin-XXXXXX")"
 curl_log="${mock_bin}/curl.log"
 cat > "${mock_bin}/curl" <<'MOCKCURL'
@@ -148,9 +162,12 @@ cat > "${mock_bin}/curl" <<'MOCKCURL'
 echo "$@" >> "$(dirname "$0")/curl.log"
 if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
   echo '{}'
+elif echo "$@" | grep -q "issues/comments/99999"; then
+  # Verify GET after PATCH — return body with the default section
+  printf '{"body": "<!-- lcov-coverage-check -->\\n<!-- lcov-section:default -->\\nreport\\n<!-- lcov-section-end:default -->"}'
 else
-  # Return a comment with the marker
-  echo '[{"id": 99999, "body": "<!-- lcov-coverage-check -->\nold report"}]'
+  # List comments — return existing consolidated comment with a "go" section
+  echo '[{"id": 99999, "body": "<!-- lcov-coverage-check -->\n<!-- lcov-section:go -->\n<!-- lcov-section-source:go-job:go.lcov -->\n## Coverage Report — go\n<!-- lcov-section-end:go -->"}]'
 fi
 MOCKCURL
 chmod +x "${mock_bin}/curl"
@@ -187,6 +204,13 @@ if grep -q "\-X PATCH" "$curl_log" 2>/dev/null; then
   pass "curl used PATCH to update existing comment"
 else
   fail "curl should have used PATCH"
+fi
+
+# Verify the PATCH body contains both the existing "go" section and the new "default" section
+if grep -q 'lcov-section:go' "$curl_log" 2>/dev/null && grep -q 'lcov-section:default' "$curl_log" 2>/dev/null; then
+  pass "PATCH body contains both 'go' and 'default' sections"
+else
+  fail "PATCH body should contain both existing 'go' and new 'default' sections"
 fi
 
 rm -f "$event_payload"

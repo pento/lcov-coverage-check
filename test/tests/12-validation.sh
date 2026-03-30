@@ -122,14 +122,14 @@ output="$(
   bash "$CHECK_SCRIPT" 2>&1
 )" && exit_code=0 || exit_code=$?
 
-# The source tag should have double-dashes collapsed to single-dashes
-if grep -q 'lcov-coverage-source:ci-build-job:' "$curl_log" 2>/dev/null; then
-  pass "source tag has double-dashes sanitized to single-dashes"
+# The source tag (now inside a section) should have double-dashes collapsed to single-dashes
+if grep -q 'lcov-section-source:ci-build-job:' "$curl_log" 2>/dev/null; then
+  pass "section source tag has double-dashes sanitized to single-dashes"
 else
-  if grep -q 'lcov-coverage-source:ci--build--job:' "$curl_log" 2>/dev/null; then
-    fail "source tag still contains unsanitized double-dashes"
+  if grep -q 'lcov-section-source:ci--build--job:' "$curl_log" 2>/dev/null; then
+    fail "section source tag still contains unsanitized double-dashes"
   else
-    fail "source tag not found in curl log"
+    fail "section source tag not found in curl log"
   fi
 fi
 

@@ -113,9 +113,9 @@ fi
 rm -f "$step_summary"
 
 # ---------------------------------------------------------------------------
-# Test 44: Coverage label — comment marker includes label
+# Test 44: Coverage label — section marker uses label as key
 # ---------------------------------------------------------------------------
-run_test "Coverage label: comment marker includes label"
+run_test "Coverage label: section marker uses label as key"
 
 event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
 echo '{"pull_request": {"number": 42}}' > "$event_payload"
@@ -157,19 +157,27 @@ else
   fail "expected exit code 0, got $exit_code"
 fi
 
-if grep -q 'lcov-coverage-check:go' "$curl_log" 2>/dev/null; then
-  pass "curl log contains labeled marker 'lcov-coverage-check:go'"
+# All runs use the same top-level marker
+if grep -q 'lcov-coverage-check -->' "$curl_log" 2>/dev/null; then
+  pass "curl log contains consolidated marker 'lcov-coverage-check'"
 else
-  fail "curl log missing labeled marker"
+  fail "curl log missing consolidated marker"
+fi
+
+# The label should appear as a section key, not in the top-level marker
+if grep -q 'lcov-section:go' "$curl_log" 2>/dev/null; then
+  pass "curl log contains section marker 'lcov-section:go'"
+else
+  fail "curl log missing section marker 'lcov-section:go'"
 fi
 
 rm -f "$event_payload"
 rm -rf "$mock_bin"
 
 # ---------------------------------------------------------------------------
-# Test 45: Coverage label — different labels produce different markers
+# Test 45: Coverage label — different labels produce different section keys
 # ---------------------------------------------------------------------------
-run_test "Coverage label: different labels produce different markers"
+run_test "Coverage label: different labels produce different section keys"
 
 event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
 echo '{"pull_request": {"number": 42}}' > "$event_payload"
@@ -234,28 +242,43 @@ INPUT_COVERAGE_LABEL="frontend" \
 INPUT_GITHUB_TOKEN="fake-token" \
 bash "$CHECK_SCRIPT" > /dev/null 2>&1 || true
 
-if grep -q 'lcov-coverage-check:go' "$curl_log_go" 2>/dev/null; then
-  pass "first run uses marker 'lcov-coverage-check:go'"
+# Both runs use the same top-level marker
+if grep -q 'lcov-coverage-check -->' "$curl_log_go" 2>/dev/null; then
+  pass "first run uses consolidated marker"
 else
-  fail "first run missing marker 'lcov-coverage-check:go'"
+  fail "first run missing consolidated marker"
 fi
 
-if grep -q 'lcov-coverage-check:frontend' "$curl_log_fe" 2>/dev/null; then
-  pass "second run uses marker 'lcov-coverage-check:frontend'"
+if grep -q 'lcov-coverage-check -->' "$curl_log_fe" 2>/dev/null; then
+  pass "second run uses consolidated marker"
 else
-  fail "second run missing marker 'lcov-coverage-check:frontend'"
+  fail "second run missing consolidated marker"
 fi
 
-if ! grep -q 'lcov-coverage-check:frontend' "$curl_log_go" 2>/dev/null; then
-  pass "first run does NOT contain 'frontend' marker"
+# Each run uses its own section key
+if grep -q 'lcov-section:go' "$curl_log_go" 2>/dev/null; then
+  pass "first run has section 'lcov-section:go'"
 else
-  fail "first run should not contain 'frontend' marker"
+  fail "first run missing section 'lcov-section:go'"
 fi
 
-if ! grep -q 'lcov-coverage-check:go' "$curl_log_fe" 2>/dev/null; then
-  pass "second run does NOT contain 'go' marker"
+if grep -q 'lcov-section:frontend' "$curl_log_fe" 2>/dev/null; then
+  pass "second run has section 'lcov-section:frontend'"
 else
-  fail "second run should not contain 'go' marker"
+  fail "second run missing section 'lcov-section:frontend'"
+fi
+
+# Each run does NOT contain the other's section key
+if ! grep -q 'lcov-section:frontend' "$curl_log_go" 2>/dev/null; then
+  pass "first run does NOT contain 'frontend' section"
+else
+  fail "first run should not contain 'frontend' section"
+fi
+
+if ! grep -q 'lcov-section:go' "$curl_log_fe" 2>/dev/null; then
+  pass "second run does NOT contain 'go' section"
+else
+  fail "second run should not contain 'go' section"
 fi
 
 rm -f "$event_payload"

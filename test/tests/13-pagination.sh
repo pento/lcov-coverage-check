@@ -12,12 +12,7 @@ curl_log="${mock_bin}/curl.log"
 cat > "${mock_bin}/curl" <<'MOCKCURL'
 #!/usr/bin/env bash
 mock_dir="$(dirname "$0")"
-counter_file="${mock_dir}/curl_counter"
-if [[ ! -f "$counter_file" ]]; then echo 0 > "$counter_file"; fi
-count=$(cat "$counter_file")
-count=$((count + 1))
-echo "$count" > "$counter_file"
-echo "CALL $count: $@" >> "${mock_dir}/curl.log"
+echo "$@" >> "${mock_dir}/curl.log"
 
 # Parse -D argument for header dump file
 header_file=""
@@ -31,12 +26,15 @@ done
 
 if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
   echo '{}'
+elif echo "$@" | grep -q "issues/comments/88888" && ! echo "$@" | grep -q "\-D"; then
+  # Verify GET for specific comment (no -D flag = not a list request)
+  printf '{"body": "<!-- lcov-coverage-check -->\\n<!-- lcov-section:default -->\\nreport\\n<!-- lcov-section-end:default -->"}'
 elif echo "$@" | grep -q "page=2"; then
-  # Page 2: comment with the marker
+  # Page 2: comment with the marker (consolidated format with section)
   if [[ -n "$header_file" ]]; then
     printf 'HTTP/1.1 200 OK\r\n\r\n' > "$header_file"
   fi
-  echo '[{"id": 88888, "body": "<!-- lcov-coverage-check -->\nold report from page 2"}]'
+  echo '[{"id": 88888, "body": "<!-- lcov-coverage-check -->\n<!-- lcov-section:default -->\n<!-- lcov-section-source:old-job:old.lcov -->\nold report from page 2\n<!-- lcov-section-end:default -->"}]'
 else
   # Page 1: unrelated comment, with Link header indicating more pages
   if [[ -n "$header_file" ]]; then
@@ -106,12 +104,7 @@ curl_log="${mock_bin}/curl.log"
 cat > "${mock_bin}/curl" <<'MOCKCURL'
 #!/usr/bin/env bash
 mock_dir="$(dirname "$0")"
-counter_file="${mock_dir}/curl_counter"
-if [[ ! -f "$counter_file" ]]; then echo 0 > "$counter_file"; fi
-count=$(cat "$counter_file")
-count=$((count + 1))
-echo "$count" > "$counter_file"
-echo "CALL $count: $@" >> "${mock_dir}/curl.log"
+echo "$@" >> "${mock_dir}/curl.log"
 
 # Parse -D argument for header dump file
 header_file=""
@@ -175,9 +168,9 @@ rm -f "$event_payload"
 rm -rf "$mock_bin"
 
 # ---------------------------------------------------------------------------
-# Test 59: Collision detection works across paginated pages
+# Test 59: Labeled run adds section to existing consolidated comment across pages
 # ---------------------------------------------------------------------------
-run_test "Pagination: collision detection finds unlabeled comment across pages"
+run_test "Pagination: labeled run merges section into comment found on later page"
 
 event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
 echo '{"pull_request": {"number": 42}}' > "$event_payload"
@@ -188,12 +181,7 @@ curl_log="${mock_bin}/curl.log"
 cat > "${mock_bin}/curl" <<'MOCKCURL'
 #!/usr/bin/env bash
 mock_dir="$(dirname "$0")"
-counter_file="${mock_dir}/curl_counter"
-if [[ ! -f "$counter_file" ]]; then echo 0 > "$counter_file"; fi
-count=$(cat "$counter_file")
-count=$((count + 1))
-echo "$count" > "$counter_file"
-echo "CALL $count: $@" >> "${mock_dir}/curl.log"
+echo "$@" >> "${mock_dir}/curl.log"
 
 # Parse -D argument for header dump file
 header_file=""
@@ -207,6 +195,9 @@ done
 
 if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
   echo '{}'
+elif echo "$@" | grep -q "issues/comments/100" && ! echo "$@" | grep -q "\-D"; then
+  # Verify GET — return body with both sections
+  printf '{"body": "<!-- lcov-coverage-check -->\\n<!-- lcov-section:default -->\\nold report\\n<!-- lcov-section-end:default -->\\n<!-- lcov-section:go -->\\ngo report\\n<!-- lcov-section-end:go -->"}'
 elif echo "$@" | grep -q "page=2"; then
   # Page 2: empty
   if [[ -n "$header_file" ]]; then
@@ -214,11 +205,11 @@ elif echo "$@" | grep -q "page=2"; then
   fi
   echo '[]'
 else
-  # Page 1: unlabeled coverage comment, with Link header
+  # Page 1: consolidated comment with existing default section, plus Link header
   if [[ -n "$header_file" ]]; then
     printf 'HTTP/1.1 200 OK\r\nLink: <https://api.github.com/next>; rel="next"\r\n\r\n' > "$header_file"
   fi
-  echo '[{"id": 100, "body": "<!-- lcov-coverage-check -->\nold unlabeled report"}]'
+  echo '[{"id": 100, "body": "<!-- lcov-coverage-check -->\n<!-- lcov-section:default -->\n<!-- lcov-section-source:job-a:file.lcov -->\nold report\n<!-- lcov-section-end:default -->"}]'
 fi
 MOCKCURL
 chmod +x "${mock_bin}/curl"
@@ -227,7 +218,7 @@ output="$(
   PATH="${mock_bin}:${PATH}" \
   GITHUB_EVENT_PATH="$event_payload" \
   GITHUB_REPOSITORY="owner/repo" \
-  GITHUB_JOB="test-job" \
+  GITHUB_JOB="go-job" \
   INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
   INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
   INPUT_BASE_REF="" \
@@ -247,18 +238,17 @@ else
   fail "expected exit code 0, got $exit_code"
 fi
 
-# Collision warning should be present (unlabeled comment found while running labeled check)
-if grep -q 'coverage-label' "$curl_log" 2>/dev/null && grep -q 'without' "$curl_log" 2>/dev/null; then
-  pass "collision warning about unlabeled check detected across pages"
+# Should PATCH the existing consolidated comment with both sections
+if grep -q '\-X PATCH' "$curl_log" 2>/dev/null; then
+  pass "curl used PATCH to update existing consolidated comment"
 else
-  fail "curl log missing collision warning about unlabeled check"
+  fail "curl should have used PATCH"
 fi
 
-# Should POST (not PATCH) since no labeled comment exists
-if grep -q '\-X POST' "$curl_log" 2>/dev/null; then
-  pass "curl used POST to create new labeled comment"
+if grep -q 'lcov-section:default' "$curl_log" 2>/dev/null && grep -q 'lcov-section:go' "$curl_log" 2>/dev/null; then
+  pass "PATCH body contains both 'default' and 'go' sections"
 else
-  fail "curl should have used POST (no existing labeled comment)"
+  fail "PATCH body should contain both existing 'default' and new 'go' sections"
 fi
 
 rm -f "$event_payload"
