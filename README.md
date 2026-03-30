@@ -125,15 +125,15 @@ Labels are normalized to lowercase alphanumeric characters and hyphens.
 
 ## Inputs
 
-| Input                       | Required | Default              | Description                                                                               |
-| --------------------------- | -------- | -------------------- | ----------------------------------------------------------------------------------------- |
-| `lcov-file`                 | no       | `coverage/lcov.info` | Path to current LCOV coverage file                                                        |
-| `new-file-minimum-coverage` | no       | `80`                 | Minimum coverage percentage for new files (0-100)                                         |
-| `path`                      | no       | `lib/`               | Path prefixes for file-level checks, one per line. Empty = all paths                      |
-| `changed-file-no-decrease`  | no       | `true`               | Require that per-file coverage of modified files does not decrease vs baseline            |
-| `ignore-patterns`           | no       | `''`                 | File patterns to exclude from coverage checks (one glob pattern per line)                 |
+| Input                       | Required | Default              | Description                                                                                                                                 |
+| --------------------------- | -------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `lcov-file`                 | no       | `coverage/lcov.info` | Path to current LCOV coverage file                                                                                                          |
+| `new-file-minimum-coverage` | no       | `80`                 | Minimum coverage percentage for new files (0-100)                                                                                           |
+| `path`                      | no       | `lib/`               | Path prefixes for file-level checks, one per line. Empty = all paths                                                                        |
+| `changed-file-no-decrease`  | no       | `true`               | Require that per-file coverage of modified files does not decrease vs baseline                                                              |
+| `ignore-patterns`           | no       | `''`                 | File patterns to exclude from coverage checks (one glob pattern per line)                                                                   |
 | `coverage-label`            | no       | `''`                 | Label to distinguish multiple coverage checks. Each label gets its own section in the consolidated PR comment and its own baseline artifact |
-| `github-token`              | no       | `''`                 | GitHub token for PR comments and artifact management. If empty, runs in summary-only mode |
+| `github-token`              | no       | `''`                 | GitHub token for PR comments and artifact management. If empty, runs in summary-only mode                                                   |
 
 ## Outputs
 
@@ -222,7 +222,7 @@ For new/modified file detection, the action needs access to both the base and he
 
 ## Project structure
 
-```
+```txt
 scripts/
   lib/
     common.sh          # Shared helpers (write_output, append_summary)
