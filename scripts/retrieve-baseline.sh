@@ -26,16 +26,8 @@ set -euo pipefail
 #   head-ref      - head SHA from PR event payload
 ###############################################################################
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-write_output() {
-  local key="$1" value="$2"
-  if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-    echo "${key}=${value}" >> "$GITHUB_OUTPUT"
-  fi
-}
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/lib/common.sh"
 
 # On any error, gracefully fall back to summary-only mode
 trap 'echo "::notice::Baseline artifact retrieval failed — running in summary-only mode"; write_output "downloaded" "false"; exit 0' ERR
