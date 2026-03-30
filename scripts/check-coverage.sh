@@ -205,6 +205,10 @@ extract_lcov_extensions() {
 failed=false
 failure_messages=()
 
+# Preserve original LCOV path for stable source identification in PR comments
+# (filter_lcov_file rewrites INPUT_LCOV_FILE to a temp path when ignore patterns are set)
+ORIGINAL_LCOV_FILE="$INPUT_LCOV_FILE"
+
 # --- Filter LCOV files by ignore patterns ---
 if [[ -n "$INPUT_IGNORE_PATTERNS" ]]; then
   echo "== Ignore Patterns =="
@@ -563,7 +567,7 @@ if [[ -n "$INPUT_GITHUB_TOKEN" && -n "${GITHUB_REPOSITORY:-}" && -n "$pr_number"
   # Source tag to detect when different runs share the same (unlabeled) marker
   # Collapse runs of 2+ hyphens to prevent breaking HTML comment structure
   safe_job="$(echo "${GITHUB_JOB:-unknown}" | sed 's/--*/-/g')"
-  safe_lcov="$(echo "$INPUT_LCOV_FILE" | sed 's/--*/-/g')"
+  safe_lcov="$(echo "$ORIGINAL_LCOV_FILE" | sed 's/--*/-/g')"
   source_id="${safe_job}:${safe_lcov}"
   source_tag="<!-- lcov-coverage-source:${source_id} -->"
 

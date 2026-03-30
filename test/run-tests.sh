@@ -2909,7 +2909,68 @@ rm -f "$event_payload"
 rm -rf "$mock_bin"
 
 # ---------------------------------------------------------------------------
-# Test 52: Invalid new-file-minimum-coverage is rejected
+# Test 52: No false collision when ignore patterns rewrite LCOV path
+# ---------------------------------------------------------------------------
+run_test "No false collision: ignore patterns don't change source identity"
+
+event_payload="$(mktemp "${TMPDIR:-/tmp}/event-payload-XXXXXX.json")"
+echo '{"pull_request": {"number": 42}}' > "$event_payload"
+
+mock_bin="$(mktemp -d "${TMPDIR:-/tmp}/mock-bin-XXXXXX")"
+curl_log="${mock_bin}/curl.log"
+
+# Existing comment uses the original LCOV file path (not a temp filtered path)
+cat > "${mock_bin}/comments.json" <<COMMENTS
+[{"id": 500, "body": "<!-- lcov-coverage-check -->\n<!-- lcov-coverage-source:test-job:${FIXTURES_DIR}/current.lcov.info -->\nold report"}]
+COMMENTS
+
+cat > "${mock_bin}/curl" <<'MOCKCURL'
+#!/usr/bin/env bash
+echo "$@" >> "$(dirname "$0")/curl.log"
+if echo "$@" | grep -q "\-X POST\|\-X PATCH"; then
+  echo '{}'
+else
+  cat "$(dirname "$0")/comments.json"
+fi
+MOCKCURL
+chmod +x "${mock_bin}/curl"
+
+output="$(
+  PATH="${mock_bin}:${PATH}" \
+  GITHUB_EVENT_PATH="$event_payload" \
+  GITHUB_REPOSITORY="owner/repo" \
+  GITHUB_JOB="test-job" \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+  INPUT_BASE_REF="" \
+  INPUT_HEAD_REF="HEAD" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="80" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="true" \
+  INPUT_IGNORE_PATTERNS="*.g.dart" \
+  INPUT_COVERAGE_LABEL="" \
+  INPUT_GITHUB_TOKEN="fake-token" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+# Source tag should use original path, not temp filtered path — no false collision
+if grep -q 'Warning' "$curl_log" 2>/dev/null; then
+  fail "false collision warning triggered (source tag used filtered temp path instead of original)"
+else
+  pass "no false collision warning when ignore patterns are active"
+fi
+
+rm -f "$event_payload"
+rm -rf "$mock_bin"
+
+# ---------------------------------------------------------------------------
+# Test 53: Invalid new-file-minimum-coverage is rejected
 # ---------------------------------------------------------------------------
 run_test "Invalid new-file-minimum-coverage: non-numeric value rejected"
 
@@ -2939,7 +3000,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 53: Out-of-range new-file-minimum-coverage is rejected
+# Test 54: Out-of-range new-file-minimum-coverage is rejected
 # ---------------------------------------------------------------------------
 run_test "Invalid new-file-minimum-coverage: value > 100 rejected"
 
@@ -2969,7 +3030,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 54: Valid decimal new-file-minimum-coverage is accepted
+# Test 55: Valid decimal new-file-minimum-coverage is accepted
 # ---------------------------------------------------------------------------
 run_test "Valid decimal new-file-minimum-coverage: accepted"
 
@@ -2993,7 +3054,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Test 55: Source tag sanitizes HTML comment sequences
+# Test 56: Source tag sanitizes HTML comment sequences
 # ---------------------------------------------------------------------------
 run_test "Source tag: double-dash in GITHUB_JOB is sanitized"
 
