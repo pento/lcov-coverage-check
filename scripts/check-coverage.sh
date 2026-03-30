@@ -32,6 +32,12 @@ source "${SCRIPT_DIR}/lib/lcov.sh"
 source "${SCRIPT_DIR}/lib/filter.sh"
 
 # ---------------------------------------------------------------------------
+# Temp-file cleanup — filter_lcov_file creates temp files that we must remove
+# ---------------------------------------------------------------------------
+_cleanup_files=()
+trap '[[ ${#_cleanup_files[@]} -gt 0 ]] && rm -f "${_cleanup_files[@]}"' EXIT
+
+# ---------------------------------------------------------------------------
 # Defaults & validation
 # ---------------------------------------------------------------------------
 INPUT_LCOV_FILE="${INPUT_LCOV_FILE:-}"
@@ -78,6 +84,7 @@ if [[ -n "$INPUT_IGNORE_PATTERNS" ]]; then
   done <<< "$INPUT_IGNORE_PATTERNS"
   echo ""
   INPUT_LCOV_FILE="$(filter_lcov_file "$INPUT_LCOV_FILE" "$INPUT_IGNORE_PATTERNS")"
+  [[ "$INPUT_LCOV_FILE" != "$ORIGINAL_LCOV_FILE" ]] && _cleanup_files+=("$INPUT_LCOV_FILE")
 fi
 
 # --- Display configured path prefixes ---
@@ -151,7 +158,9 @@ echo "== Comparison Mode =="
 
 # Filter baseline LCOV by ignore patterns
 if [[ -n "$INPUT_IGNORE_PATTERNS" ]]; then
+  _original_base="$INPUT_LCOV_BASE"
   INPUT_LCOV_BASE="$(filter_lcov_file "$INPUT_LCOV_BASE" "$INPUT_IGNORE_PATTERNS")"
+  [[ "$INPUT_LCOV_BASE" != "$_original_base" ]] && _cleanup_files+=("$INPUT_LCOV_BASE")
 fi
 
 # Parse baseline
