@@ -31,7 +31,7 @@ fi
 if echo "$output" | grep -q "87.50%"; then
   pass "overall coverage is 87.50% (generated files excluded)"
 else
-  fail "expected 87.50% coverage after ignoring generated files, got: $(echo "$output" | grep 'Overall:')"
+  fail "expected 87.50% coverage after ignoring generated files, got: $(echo "$output" | grep 'Overall:' || true)"
 fi
 
 if echo "$output" | grep -q "widget_a.g.dart"; then
@@ -140,7 +140,7 @@ fi
 if echo "$output" | grep -q "58.33%"; then
   pass "overall coverage is 58.33% (models dir excluded)"
 else
-  fail "expected 58.33% coverage after excluding models dir, got: $(echo "$output" | grep 'Overall:')"
+  fail "expected 58.33% coverage after excluding models dir, got: $(echo "$output" | grep 'Overall:' || true)"
 fi
 
 # ---------------------------------------------------------------------------
