@@ -133,11 +133,12 @@ INPUT_GITHUB_TOKEN="${INPUT_GITHUB_TOKEN:-}"
 
 # Sanitize coverage label: lowercase, alphanumeric + hyphens only
 if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
-  INPUT_COVERAGE_LABEL="$(echo "$INPUT_COVERAGE_LABEL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
+  INPUT_COVERAGE_LABEL="$(printf '%s' "$INPUT_COVERAGE_LABEL" | tr '[:upper:]' '[:lower:]' | tr '\n\r' '-' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
   if [[ -z "$INPUT_COVERAGE_LABEL" ]]; then
     echo "::warning::coverage-label contained only invalid characters and was discarded"
   fi
 fi
+write_output "coverage-label" "$INPUT_COVERAGE_LABEL"
 
 # should_ignore_file PATH PATTERNS
 #   Returns 0 (true) if PATH matches any of the newline-separated glob patterns.

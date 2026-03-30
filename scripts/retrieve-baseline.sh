@@ -46,7 +46,7 @@ trap 'echo "::notice::Baseline artifact retrieval failed — running in summary-
 INPUT_COVERAGE_LABEL="${INPUT_COVERAGE_LABEL:-}"
 # Sanitize coverage label: lowercase, alphanumeric + hyphens only
 if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
-  INPUT_COVERAGE_LABEL="$(echo "$INPUT_COVERAGE_LABEL" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
+  INPUT_COVERAGE_LABEL="$(printf '%s' "$INPUT_COVERAGE_LABEL" | tr '[:upper:]' '[:lower:]' | tr '\n\r' '-' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
   if [[ -z "$INPUT_COVERAGE_LABEL" ]]; then
     echo "::warning::coverage-label contained only invalid characters and was discarded"
   fi

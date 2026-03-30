@@ -142,6 +142,7 @@ Labels are normalized to lowercase alphanumeric characters and hyphens. If the a
 | `overall-coverage`             | Current overall coverage percentage (e.g., `87.50`)         |
 | `baseline-coverage`            | Baseline coverage percentage (empty if summary-only)        |
 | `passed`                       | `'true'` or `'false'`                                       |
+| `coverage-label`               | Sanitized coverage label (may differ from input)            |
 | `baseline-artifact-downloaded` | `'true'` if baseline was auto-retrieved from a previous run |
 
 ## Automatic Baseline Management

@@ -42,6 +42,9 @@ outputs:
   passed:
     description: "'true' or 'false'"
     value: ${{ steps.coverage.outputs.passed }}
+  coverage-label:
+    description: "Sanitized coverage label (may differ from input)"
+    value: ${{ steps.coverage.outputs.coverage-label }}
   baseline-artifact-downloaded:
     description: "'true' if baseline was auto-retrieved from a previous run"
     value: ${{ steps.retrieve-baseline.outputs.downloaded }}
@@ -53,28 +56,13 @@ branding:
 runs:
   using: composite
   steps:
-    - name: Sanitize coverage label
-      id: label
-      shell: bash
-      env:
-        RAW_LABEL: ${{ inputs.coverage-label }}
-      run: |
-        label="$RAW_LABEL"
-        if [[ -n "$label" ]]; then
-          label="$(echo "$label" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
-          if [[ -z "$label" ]]; then
-            echo "::warning::coverage-label contained only invalid characters and was discarded"
-          fi
-        fi
-        echo "value=${label}" >> "$GITHUB_OUTPUT"
-
     - name: Retrieve baseline artifact
       id: retrieve-baseline
       if: inputs.github-token != ''
       shell: bash
       env:
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
-        INPUT_COVERAGE_LABEL: ${{ steps.label.outputs.value }}
+        INPUT_COVERAGE_LABEL: ${{ inputs.coverage-label }}
       run: "${{ github.action_path }}/scripts/retrieve-baseline.sh"
 
     - name: Check coverage
@@ -89,7 +77,7 @@ runs:
         INPUT_PATH: ${{ inputs.path }}
         INPUT_CHANGED_FILE_NO_DECREASE: ${{ inputs.changed-file-no-decrease }}
         INPUT_IGNORE_PATTERNS: ${{ inputs.ignore-patterns }}
-        INPUT_COVERAGE_LABEL: ${{ steps.label.outputs.value }}
+        INPUT_COVERAGE_LABEL: ${{ inputs.coverage-label }}
         INPUT_GITHUB_TOKEN: ${{ inputs.github-token }}
       run: "${{ github.action_path }}/scripts/check-coverage.sh"
 
@@ -97,7 +85,7 @@ runs:
       if: ${{ !cancelled() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
       uses: actions/upload-artifact@v7
       with:
-        name: lcov-baseline${{ steps.label.outputs.value && format('-{0}', steps.label.outputs.value) || '' }}
+        name: lcov-baseline${{ steps.coverage.outputs.coverage-label && format('-{0}', steps.coverage.outputs.coverage-label) || '' }}
         path: ${{ inputs.lcov-file }}
         overwrite: true
 
@@ -105,6 +93,6 @@ runs:
       if: ${{ !cancelled() && github.event_name == 'pull_request' }}
       uses: actions/upload-artifact@v7
       with:
-        name: lcov-coverage${{ steps.label.outputs.value && format('-{0}', steps.label.outputs.value) || '' }}
+        name: lcov-coverage${{ steps.coverage.outputs.coverage-label && format('-{0}', steps.coverage.outputs.coverage-label) || '' }}
         path: ${{ inputs.lcov-file }}
         overwrite: true
