@@ -82,20 +82,7 @@ if [[ -z "$default_branch" || "$default_branch" == "null" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 3. Find latest successful run on default branch
-# ---------------------------------------------------------------------------
-run_id="$(curl -s -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
-  "${API_BASE}/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?branch=${default_branch}&status=success&per_page=1" \
-  | jq -r '.workflow_runs[0].id // empty')"
-
-if [[ -z "$run_id" ]]; then
-  echo "::notice::No successful runs found on ${default_branch} — running in summary-only mode"
-  write_output "downloaded" "false"
-  exit 0
-fi
-
-# ---------------------------------------------------------------------------
-# 4. Find lcov-baseline artifact (not expired)
+# 3. Determine the baseline artifact name (label-aware)
 # ---------------------------------------------------------------------------
 if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
   ARTIFACT_NAME="lcov-baseline-${INPUT_COVERAGE_LABEL}"
@@ -103,13 +90,69 @@ else
   ARTIFACT_NAME="lcov-baseline"
 fi
 
-artifact_url="$(curl -s -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
-  "${API_BASE}/repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" \
-  | jq -r --arg name "${ARTIFACT_NAME}" '.artifacts[] | select(.name == $name and .expired == false) | .archive_download_url' \
-  | head -1)"
+# ---------------------------------------------------------------------------
+# 4. Find the most recent successful default-branch run that still holds a
+#    non-expired baseline artifact.
+#
+#    A successful run does not guarantee a baseline: the coverage job is often
+#    conditional (path filters, matrix skips, flaky reruns), so the newest run
+#    can complete without producing one while an older run still has a valid
+#    baseline. Page back through recent runs and use the first match, only
+#    falling back to summary-only mode when none of the inspected runs has one.
+#    Pagination mirrors the Link-header idiom in check-coverage.sh.
+# ---------------------------------------------------------------------------
+artifact_url=""
+run_id=""
+runs_page=1
+while true; do
+  runs_header_file="$(mktemp "${TMPDIR:-/tmp}/lcov-run-headers-XXXXXX")"
+  runs_response="$(curl -s -D "$runs_header_file" -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+    "${API_BASE}/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_id}/runs?branch=${default_branch}&status=success&per_page=100&page=${runs_page}" \
+    || true)"
+
+  # Stop if the response is not the expected shape (API error, rate limit, etc.)
+  if ! echo "$runs_response" | jq -e '.workflow_runs | type == "array"' > /dev/null 2>&1; then
+    rm -f "$runs_header_file"
+    break
+  fi
+
+  # Inspect each run on this page (newest first) for a non-expired baseline artifact
+  run_ids="$(echo "$runs_response" | jq -r '.workflow_runs[].id // empty')"
+  while IFS= read -r candidate_run_id; do
+    if [[ -z "$candidate_run_id" ]]; then
+      continue
+    fi
+    # A transient failure (or jq error on a malformed/non-array response) for one
+    # run should not abort the whole search — skip it and keep paging.
+    candidate_url="$(curl -s -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
+      "${API_BASE}/repos/${GITHUB_REPOSITORY}/actions/runs/${candidate_run_id}/artifacts" \
+      | jq -r --arg name "${ARTIFACT_NAME}" '.artifacts[] | select(.name == $name and .expired == false) | .archive_download_url' \
+      | head -1 || true)"
+    if [[ -n "$candidate_url" ]]; then
+      artifact_url="$candidate_url"
+      run_id="$candidate_run_id"
+      break
+    fi
+  done <<< "$run_ids"
+
+  # Advance to the next page only if one exists and we haven't found an artifact yet
+  has_next="$(grep -i '^link:' "$runs_header_file" | grep -o 'rel="next"' || true)"
+  rm -f "$runs_header_file"
+
+  if [[ -n "$artifact_url" ]]; then
+    break
+  fi
+  if [[ -z "$has_next" ]]; then
+    break
+  fi
+  runs_page=$((runs_page + 1))
+  if [[ $runs_page -gt 50 ]]; then
+    break
+  fi
+done
 
 if [[ -z "$artifact_url" ]]; then
-  echo "::notice::No ${ARTIFACT_NAME} artifact found in run ${run_id} — running in summary-only mode"
+  echo "::notice::No ${ARTIFACT_NAME} artifact found in recent successful ${default_branch} runs — running in summary-only mode"
   write_output "downloaded" "false"
   exit 0
 fi
@@ -117,7 +160,7 @@ fi
 # ---------------------------------------------------------------------------
 # 5. Download and extract artifact
 # ---------------------------------------------------------------------------
-tmpdir="$(mktemp -d)"
+tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/lcov-artifact-XXXXXX")"
 curl -s -L -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
   -o "${tmpdir}/artifact.zip" "$artifact_url"
 

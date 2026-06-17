@@ -150,7 +150,7 @@ Labels are normalized to lowercase alphanumeric characters and hyphens.
 When `github-token` is provided, the action automatically manages baseline coverage artifacts:
 
 1. **On pushes to the default branch** (e.g., `main`): the current LCOV file is uploaded as an `lcov-baseline` artifact, overwriting any previous baseline.
-2. **On pull requests**: the action retrieves the `lcov-baseline` artifact from the latest successful default-branch run of the same workflow. It also extracts `base.sha` and `head.sha` from the PR event payload for `git diff` operations.
+2. **On pull requests**: the action retrieves the `lcov-baseline` artifact from the same workflow's default-branch runs. Because a successful run does not always produce a baseline (the coverage job may be skipped by path filters or matrix), it pages back through recent successful runs (newest first) and uses the first that still holds a non-expired `lcov-baseline` artifact. It also extracts `base.sha` and `head.sha` from the PR event payload for `git diff` operations.
 3. **On pull requests**: the current LCOV file is also uploaded as an `lcov-coverage` artifact.
 
 When `coverage-label` is set, artifact names are suffixed (e.g., `lcov-baseline-go`, `lcov-coverage-frontend`). Each label tracks its own independent baseline.
@@ -211,7 +211,7 @@ For new/modified file detection, the action needs access to both the base and he
 
 - **Empty or missing LCOV files**: Treated as 0% coverage (not an error)
 - **First run (no baseline)**: Runs in summary-only mode. Baseline stored for next PR.
-- **Expired artifact**: Filtered by `expired == false`. Graceful fallback to summary-only.
+- **Expired artifact**: Filtered by `expired == false`. Retrieval pages back to an earlier run with a valid baseline; falls back to summary-only only if none is found.
 - **Fork PRs**: Token may lack `actions: read`. ERR trap handles graceful fallback.
 - **New file not in LCOV data**: Treated as 0% coverage, fails if below threshold
 - **New file with `LF:0`**: No instrumentable lines, passes automatically

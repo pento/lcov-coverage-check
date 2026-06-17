@@ -4,7 +4,7 @@
 run_test "Temp cleanup: filtered LCOV temp files removed on success"
 
 # Use an isolated TMPDIR so we can verify cleanup
-test_tmpdir="$(mktemp -d)"
+test_tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/lcov-cleanup-XXXXXX")"
 
 output="$(
   TMPDIR="$test_tmpdir" \
@@ -41,7 +41,7 @@ rm -rf "$test_tmpdir"
 run_test "Temp cleanup: filtered LCOV temp files removed on failure"
 
 # Use an isolated TMPDIR so we can verify cleanup
-test_tmpdir="$(mktemp -d)"
+test_tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/lcov-cleanup-XXXXXX")"
 
 # decreased.lcov.info (50%) vs baseline.lcov.info (62.5%) — overall ratchet fails.
 # Ignore patterns are set so filter_lcov_file creates temp files for both.

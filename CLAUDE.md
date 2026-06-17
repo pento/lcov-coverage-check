@@ -5,7 +5,7 @@ A reusable composite GitHub Action (pure bash, no Node.js) that parses LCOV cove
 ## Architecture
 
 - **`scripts/check-coverage.sh`** — Main entry point. Parses LCOV files, runs three checks (overall ratchet, new-file threshold, changed-file ratchet), generates markdown summary, and posts PR comments.
-- **`scripts/retrieve-baseline.sh`** — Retrieves baseline LCOV artifact from the latest successful default-branch workflow run. Gracefully falls back to summary-only mode on any error.
+- **`scripts/retrieve-baseline.sh`** — Retrieves the baseline LCOV artifact, paging back (newest first) through recent successful default-branch runs of the same workflow to find the first that still holds a non-expired `lcov-baseline[-<label>]` artifact. Gracefully falls back to summary-only mode if none is found or on any error.
 - **`scripts/lib/`** — Shared library files sourced by the main scripts:
   - `common.sh` — `write_output()`, `append_summary()`
   - `lcov.sh` — LCOV parsing (`parse_lcov_overall`, `parse_lcov_per_file`), numeric helpers (`coverage_pct`, `compare_floats`, `format_pct`), extension extraction
