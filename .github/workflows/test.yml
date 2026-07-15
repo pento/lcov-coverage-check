@@ -11,7 +11,7 @@ jobs:
     name: Run tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Run test suite
         run: test/run-tests.sh
 
@@ -19,7 +19,7 @@ jobs:
     name: Integration test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Summary-only mode
         uses: ./
         with:
@@ -29,7 +29,7 @@ jobs:
     name: Event payload test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: GITHUB_EVENT_PATH file exists
         run: |
           if [[ ! -f "$GITHUB_EVENT_PATH" ]]; then
