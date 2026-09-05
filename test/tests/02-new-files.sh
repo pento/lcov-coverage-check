@@ -154,3 +154,48 @@ else
 fi
 
 cleanup_git_repo "$tmpdir"
+
+# ---------------------------------------------------------------------------
+# Test 8: New file not in LCOV, threshold 0: exits 0 (PASS, not FAIL)
+# ---------------------------------------------------------------------------
+run_test "New file not in LCOV, threshold 0: exits 0 (PASS)"
+
+# Create a git repo where a file is added but not in any LCOV data
+tmpdir="$(setup_git_repo \
+  "lib/src/widget_a.dart:a lib/src/widget_b.dart:b" \
+  "lib/src/unknown_widget.dart:new" \
+  ""
+)"
+
+output="$(
+  cd "$tmpdir" && \
+  INPUT_LCOV_FILE="$FIXTURES_DIR/current.lcov.info" \
+  INPUT_LCOV_BASE="$FIXTURES_DIR/baseline.lcov.info" \
+  INPUT_BASE_REF="base_ref" \
+  INPUT_HEAD_REF="head_ref" \
+  INPUT_NEW_FILE_MINIMUM_COVERAGE="0" \
+  INPUT_PATH="lib/" \
+  INPUT_CHANGED_FILE_NO_DECREASE="false" \
+  INPUT_GITHUB_TOKEN="" \
+  bash "$CHECK_SCRIPT" 2>&1
+)" && exit_code=0 || exit_code=$?
+
+if [[ $exit_code -eq 0 ]]; then
+  pass "exit code is 0"
+else
+  fail "expected exit code 0, got $exit_code"
+fi
+
+if echo "$output" | grep -q "PASS: lib/src/unknown_widget.dart — not found in LCOV data"; then
+  pass "output shows the new file passed at threshold 0"
+else
+  fail "output missing 'PASS: ... — not found in LCOV data'"
+fi
+
+if echo "$output" | grep -q '^::error'; then
+  fail "unexpected error annotation for a new file absent from LCOV at threshold 0"
+else
+  pass "no error annotation emitted for a new file absent from LCOV at threshold 0"
+fi
+
+cleanup_git_repo "$tmpdir"

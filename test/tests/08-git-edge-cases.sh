@@ -105,7 +105,7 @@ else
   fail "incorrectly says 'No new files detected'"
 fi
 
-if ! echo "$output" | grep -q "::warning::"; then
+if ! echo "$output" | grep -q "^::warning "; then
   pass "no warning emitted (refs fetched successfully)"
 else
   fail "unexpected warning emitted"
@@ -171,14 +171,14 @@ else
   fail "expected exit code 0, got $exit_code"
 fi
 
-if echo "$output" | grep -q "::warning::Failed to detect new files"; then
+if echo "$output" | grep -q "::warning title=Coverage::Failed to detect new files"; then
   pass "warning emitted for failed new file detection"
 else
   fail "expected warning about failed new file detection"
   echo "  Output: $output"
 fi
 
-if echo "$output" | grep -q "::warning::Failed to detect modified files"; then
+if echo "$output" | grep -q "::warning title=Coverage::Failed to detect modified files"; then
   pass "warning emitted for failed modified file detection"
 else
   fail "expected warning about failed modified file detection"

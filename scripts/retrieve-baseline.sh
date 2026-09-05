@@ -30,7 +30,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/lib/common.sh"
 
 # On any error, gracefully fall back to summary-only mode
-trap 'echo "::notice::Baseline artifact retrieval failed — running in summary-only mode"; write_output "downloaded" "false"; exit 0' ERR
+trap 'emit_annotation notice "${annotation_title:-Coverage}" "Baseline artifact retrieval failed — running in summary-only mode"; write_output "downloaded" "false"; exit 0' ERR
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -40,9 +40,13 @@ INPUT_COVERAGE_LABEL="${INPUT_COVERAGE_LABEL:-}"
 if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
   INPUT_COVERAGE_LABEL="$(printf '%s' "$INPUT_COVERAGE_LABEL" | tr '[:upper:]' '[:lower:]' | tr '\n\r' '-' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
   if [[ -z "$INPUT_COVERAGE_LABEL" ]]; then
-    echo "::warning::coverage-label contained only invalid characters and was discarded"
+    emit_annotation warning "Coverage" "coverage-label contained only invalid characters and was discarded"
   fi
 fi
+
+# Title for all annotations emitted by this script
+annotation_title="$(build_annotation_title "$INPUT_COVERAGE_LABEL")"
+
 API_BASE="${GITHUB_API_URL:-https://api.github.com}"
 AUTH_HEADER="Authorization: token ${INPUT_GITHUB_TOKEN}"
 ACCEPT_HEADER="Accept: application/vnd.github+json"
@@ -57,13 +61,13 @@ body="$(echo "$response" | sed '$d')"
 workflow_id="$(echo "$body" | jq -r '.workflow_id')"
 
 if [[ "$http_code" == "403" || "$http_code" == "404" ]]; then
-  echo "::notice::GitHub API returned HTTP ${http_code} — the github-token likely needs 'actions: read' permission. Add 'permissions: actions: read' to your workflow. Running in summary-only mode."
+  emit_annotation notice "$annotation_title" "GitHub API returned HTTP ${http_code} — the github-token likely needs 'actions: read' permission. Add 'permissions: actions: read' to your workflow. Running in summary-only mode."
   write_output "downloaded" "false"
   exit 0
 fi
 
 if [[ -z "$workflow_id" || "$workflow_id" == "null" ]]; then
-  echo "::notice::Could not determine workflow ID — running in summary-only mode"
+  emit_annotation notice "$annotation_title" "Could not determine workflow ID — running in summary-only mode"
   write_output "downloaded" "false"
   exit 0
 fi
@@ -76,7 +80,7 @@ default_branch="$(curl -s -H "$AUTH_HEADER" -H "$ACCEPT_HEADER" \
   | jq -r '.default_branch')"
 
 if [[ -z "$default_branch" || "$default_branch" == "null" ]]; then
-  echo "::notice::Could not determine default branch — running in summary-only mode"
+  emit_annotation notice "$annotation_title" "Could not determine default branch — running in summary-only mode"
   write_output "downloaded" "false"
   exit 0
 fi
@@ -152,7 +156,7 @@ while true; do
 done
 
 if [[ -z "$artifact_url" ]]; then
-  echo "::notice::No ${ARTIFACT_NAME} artifact found in recent successful ${default_branch} runs — running in summary-only mode"
+  emit_annotation notice "$annotation_title" "No ${ARTIFACT_NAME} artifact found in recent successful ${default_branch} runs — running in summary-only mode"
   write_output "downloaded" "false"
   exit 0
 fi
@@ -170,7 +174,7 @@ unzip -q -o "${tmpdir}/artifact.zip" -d "${tmpdir}/artifact"
 baseline_file="$(find "${tmpdir}/artifact" -type f \( -name '*.info' -o -name '*.lcov' \) | head -1)"
 
 if [[ -z "$baseline_file" ]]; then
-  echo "::notice::No .info or .lcov file found in baseline artifact — running in summary-only mode"
+  emit_annotation notice "$annotation_title" "No .info or .lcov file found in baseline artifact — running in summary-only mode"
   write_output "downloaded" "false"
   exit 0
 fi

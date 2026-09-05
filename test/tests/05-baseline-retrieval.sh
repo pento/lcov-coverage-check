@@ -150,6 +150,13 @@ else
   fail "output missing downloaded=false"
 fi
 
+if echo "$output" | grep -qF "::notice title=Coverage::No lcov-baseline artifact found in recent successful main runs — running in summary-only mode"; then
+  pass "titled notice emitted for no successful runs"
+else
+  fail "expected titled notice for no successful runs"
+  echo "  Output: $output"
+fi
+
 rm -rf "$tmpdir"
 
 # ---------------------------------------------------------------------------

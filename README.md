@@ -172,7 +172,7 @@ Baseline artifacts follow your repository's default artifact retention policy. Y
 
 ### Summary-only mode (no `github-token` or no baseline available)
 
-- Parses the LCOV file and prints overall + per-file coverage
+- Parses the LCOV file and prints overall + per-file coverage; the per-file listing is wrapped in a collapsible log group so long lists don't bury the results
 - Writes a markdown summary to `$GITHUB_STEP_SUMMARY`
 - Always exits 0 and sets `passed` to `true`
 
@@ -181,6 +181,10 @@ Baseline artifacts follow your repository's default artifact retention policy. Y
 1. **Overall ratchet**: Current overall coverage must be >= baseline overall coverage
 2. **New-file check**: New source files (filtered to file types found in the LCOV data, detected via `git diff --diff-filter=A`) must meet the `new-file-minimum-coverage` threshold. Files with no instrumentable lines (`LF:0`) pass automatically. Files not found in the LCOV data are treated as 0% coverage.
 3. **Changed-file ratchet**: If `changed-file-no-decrease` is `true`, modified source files (filtered to file types found in the LCOV data) must not have decreased per-file coverage. Files not present in the baseline LCOV data are skipped.
+
+### Annotations
+
+Every annotation the action emits carries the title `Coverage` or `Coverage (<label>)`, so it is attributable on the run summary. Each failing check produces an error annotation, shown on the run summary and Checks tab; new-file and changed-file failures are attached to the file at line 1, so they also appear inline in the PR's Files changed tab when that line is part of the diff (always for new files). GitHub caps error annotations at 10 per step — with more failures than that, the step summary and PR comment remain the complete list.
 
 ### Ignore patterns
 
@@ -205,7 +209,7 @@ When `github-token` is provided and the action runs in a pull request context, a
 
 ### Shallow clones and fetch-depth
 
-For new/modified file detection, the action needs access to both the base and head commits. It will automatically attempt to fetch them from the remote, but if your checkout uses a very restrictive configuration (e.g., no remote access), you may need `fetch-depth: 0` in your `actions/checkout` step. If the refs cannot be fetched or resolved, a `::warning::` annotation is emitted and the action continues without file-level checks rather than failing.
+For new/modified file detection, the action needs access to both the base and head commits. It will automatically attempt to fetch them from the remote, but if your checkout uses a very restrictive configuration (e.g., no remote access), you may need `fetch-depth: 0` in your `actions/checkout` step. If the refs cannot be fetched or resolved, a warning annotation is emitted and the action continues without file-level checks rather than failing.
 
 ## Edge cases
 
@@ -225,7 +229,7 @@ For new/modified file detection, the action needs access to both the base and he
 ```txt
 scripts/
   lib/
-    common.sh          # Shared helpers (write_output, append_summary)
+    common.sh          # Shared helpers (write_output, append_summary, annotations, log groups)
     lcov.sh            # LCOV parsing and numeric helpers
     filter.sh          # File filtering / ignore-pattern logic
     comment.sh         # PR comment section management
