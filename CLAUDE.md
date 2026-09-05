@@ -19,7 +19,7 @@ A reusable composite GitHub Action (pure bash, no Node.js) that parses LCOV cove
 ./test/run-tests.sh
 ```
 
-Tests live in `test/tests/*.sh` (15 files, 77 tests, 211 assertions). They are **sourced** by `test/run-tests.sh`, not executed as subprocesses. Test helpers are in `test/helpers/`. Fixtures are in `test/fixtures/`.
+Tests live in `test/tests/*.sh` (15 files, 77 tests, 217 assertions). They are **sourced** by `test/run-tests.sh`, not executed as subprocesses. Test helpers are in `test/helpers/`. Fixtures are in `test/fixtures/`.
 
 ## Key conventions
 
@@ -35,3 +35,9 @@ Tests live in `test/tests/*.sh` (15 files, 77 tests, 211 assertions). They are *
   error annotation; per-file failures (new-file, changed-file) also pass the file path so the annotation gets
   `file=<path>,line=1`, while repo-wide failures (the overall ratchet, input validation) pass no file.
   Collapsible log groups go through `begin_group`/`end_group`; only the per-file listing is grouped.
+- Console failure output must not duplicate the annotation. A per-file failure (new-file, changed-file) prints
+  the bare, two-space-indented path on its own line (`  <path>`, no `FAIL:` prefix, no trailing colon) immediately
+  before its `emit_annotation` call; a repo-wide failure (the overall ratchet) prints nothing before its
+  annotation. The full message is still recorded in `failure_messages` and replayed by the final `Result: FAIL`
+  block, the step summary and the PR comment. The bare path has no trailing colon, so it cannot match a
+  `path: message` problem matcher (see the note above).

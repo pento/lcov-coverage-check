@@ -186,6 +186,8 @@ Baseline artifacts follow your repository's default artifact retention policy. Y
 
 Every annotation the action emits carries the title `Coverage` or `Coverage (<label>)`, so it is attributable on the run summary. Each failing check produces an error annotation, shown on the run summary and Checks tab; new-file and changed-file failures are attached to the file at line 1, so they also appear inline in the PR's Files changed tab when that line is part of the diff (always for new files). GitHub caps error annotations at 10 per step — with more failures than that, the step summary and PR comment remain the complete list.
 
+The console log avoids repeating each failure twice: a per-file failure (new-file, changed-file) prints just the bare path above its annotation, while a repo-wide failure (the overall ratchet) prints nothing before its annotation. The full failure message, with the affected file, still appears in the `Result: FAIL` list at the end of the log, plus the step summary and PR comment.
+
 ### Ignore patterns
 
 When `ignore-patterns` is provided, matching files are excluded from all coverage checks:

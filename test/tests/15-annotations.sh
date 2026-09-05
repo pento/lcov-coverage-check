@@ -137,6 +137,15 @@ else
   pass "no console line matches the setup-go problem-matcher shape (changed-file FAIL run)"
 fi
 
+# Confirm this run actually exercises a bare-path FAIL line — otherwise the
+# matcher-shape check above would trivially pass on an empty case.
+if echo "$output" | grep -qE '^  lib/src/widget_a\.dart$'; then
+  pass "this run does exercise a bare-path FAIL line (matcher-safety check is non-vacuous)"
+else
+  fail "expected bare path line '  lib/src/widget_a.dart' not found"
+  echo "  Output: $output"
+fi
+
 # widget_a.g.dart is modified but matches the ignore pattern (SKIP)
 tmpdir="$(setup_git_repo \
   "lib/src/widget_a.dart:a lib/src/widget_a.g.dart:generated" \
@@ -191,6 +200,14 @@ else
   echo "  Output: $output"
 fi
 
+# The overall ratchet has no associated file, so its console echo was removed
+# entirely (not replaced with a bare path) — only the annotation carries it.
+if echo "$output" | grep -qF "FAIL:"; then
+  fail "overall ratchet failure should not print any console 'FAIL:' line"
+else
+  pass "overall ratchet failure prints no console 'FAIL:' line (annotation only)"
+fi
+
 # ---------------------------------------------------------------------------
 # Test 66: New file below minimum emits a file-scoped error annotation
 # ---------------------------------------------------------------------------
@@ -219,6 +236,15 @@ if echo "$output" | grep -qF "::error file=lib/src/new_widget.dart,line=1,title=
   pass "new-file-below-minimum FAIL emits the expected file-scoped error annotation"
 else
   fail "expected new-file-below-minimum error annotation not found"
+  echo "  Output: $output"
+fi
+
+# Console line is the bare, indented path — no "FAIL:" prefix, no trailing
+# colon (which would make it match a setup-go-style problem matcher).
+if echo "$output" | grep -qE '^  lib/src/new_widget\.dart$'; then
+  pass "new-file-below-minimum prints the bare, indented path with no FAIL: prefix"
+else
+  fail "expected bare path line '  lib/src/new_widget.dart' not found"
   echo "  Output: $output"
 fi
 
@@ -252,6 +278,15 @@ if echo "$output" | grep -qF "::error file=lib/src/unknown_widget.dart,line=1,ti
   pass "new-file-not-in-LCOV FAIL emits the expected file-scoped error annotation"
 else
   fail "expected new-file-not-in-LCOV error annotation not found"
+  echo "  Output: $output"
+fi
+
+# Console line is the bare, indented path — no "FAIL:" prefix, no trailing
+# colon (which would make it match a setup-go-style problem matcher).
+if echo "$output" | grep -qE '^  lib/src/unknown_widget\.dart$'; then
+  pass "new-file-not-in-LCOV prints the bare, indented path with no FAIL: prefix"
+else
+  fail "expected bare path line '  lib/src/unknown_widget.dart' not found"
   echo "  Output: $output"
 fi
 
@@ -294,6 +329,25 @@ if echo "$output" | grep -qF "::error title=Coverage::Overall coverage decreased
 else
   fail "expected overall-ratchet error annotation not found in the same run"
   echo "  Output: $output"
+fi
+
+# Console line is the bare, indented path — no "FAIL:" prefix, no trailing
+# colon (which would make it match a setup-go-style problem matcher).
+if echo "$output" | grep -qE '^  lib/src/widget_a\.dart$'; then
+  pass "changed-file FAIL prints the bare, indented path with no FAIL: prefix"
+else
+  fail "expected bare path line '  lib/src/widget_a.dart' not found"
+  echo "  Output: $output"
+fi
+
+# This run fails BOTH the overall ratchet (no associated file) and the
+# changed-file check (has an associated file). The overall failure's console
+# echo was removed entirely — it must not print a bare-path line of its own,
+# and no console line anywhere should carry the old "FAIL:" prefix.
+if echo "$output" | grep -qF "FAIL:"; then
+  fail "console output should not contain any 'FAIL:' prefixed line"
+else
+  pass "console output contains no 'FAIL:' prefixed lines, even with two failures"
 fi
 
 cleanup_git_repo "$tmpdir"
