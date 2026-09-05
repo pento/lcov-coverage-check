@@ -46,11 +46,6 @@ INPUT_LCOV_BASE="${INPUT_LCOV_BASE:-}"
 INPUT_BASE_REF="${INPUT_BASE_REF:-}"
 INPUT_HEAD_REF="${INPUT_HEAD_REF:-HEAD}"
 INPUT_NEW_FILE_MINIMUM_COVERAGE="${INPUT_NEW_FILE_MINIMUM_COVERAGE:-80}"
-if ! [[ "$INPUT_NEW_FILE_MINIMUM_COVERAGE" =~ ^[0-9]+([.][0-9]+)?$ ]] \
-   || compare_floats "$INPUT_NEW_FILE_MINIMUM_COVERAGE" "gt" "100"; then
-  echo "::error::new-file-minimum-coverage must be a number between 0 and 100 (got: '${INPUT_NEW_FILE_MINIMUM_COVERAGE}')"
-  exit 1
-fi
 INPUT_PATH="${INPUT_PATH:-lib/}"
 INPUT_CHANGED_FILE_NO_DECREASE="${INPUT_CHANGED_FILE_NO_DECREASE:-true}"
 INPUT_IGNORE_PATTERNS="${INPUT_IGNORE_PATTERNS:-}"
@@ -61,10 +56,19 @@ INPUT_GITHUB_TOKEN="${INPUT_GITHUB_TOKEN:-}"
 if [[ -n "$INPUT_COVERAGE_LABEL" ]]; then
   INPUT_COVERAGE_LABEL="$(printf '%s' "$INPUT_COVERAGE_LABEL" | tr '[:upper:]' '[:lower:]' | tr '\n\r' '-' | sed 's/[^a-z0-9-]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')"
   if [[ -z "$INPUT_COVERAGE_LABEL" ]]; then
-    echo "::warning::coverage-label contained only invalid characters and was discarded"
+    emit_annotation warning "Coverage" "coverage-label contained only invalid characters and was discarded"
   fi
 fi
 write_output "coverage-label" "$INPUT_COVERAGE_LABEL"
+
+# Title for all annotations emitted by this script
+annotation_title="$(build_annotation_title "$INPUT_COVERAGE_LABEL")"
+
+if ! [[ "$INPUT_NEW_FILE_MINIMUM_COVERAGE" =~ ^[0-9]+([.][0-9]+)?$ ]] \
+   || compare_floats "$INPUT_NEW_FILE_MINIMUM_COVERAGE" "gt" "100"; then
+  emit_annotation error "$annotation_title" "new-file-minimum-coverage must be a number between 0 and 100 (got: '${INPUT_NEW_FILE_MINIMUM_COVERAGE}')"
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # Main
@@ -104,18 +108,30 @@ cur_pct_fmt="$(format_pct "$cur_pct")"
 echo "== Current Coverage =="
 echo "  Overall: ${cur_pct_fmt}% (${cur_hit}/${cur_found} lines)"
 
-# Per-file breakdown
+# Per-file breakdown (collapsed into a log group; see CLAUDE.md conventions)
 echo ""
-echo "== Per-File Coverage =="
 per_file_current=""
 if [[ -s "$INPUT_LCOV_FILE" ]]; then
   per_file_current="$(parse_lcov_per_file "$INPUT_LCOV_FILE")"
+fi
+pf_count=0
+if [[ -n "$per_file_current" ]]; then
+  # grep -c exits 1 when the count is 0, which would abort under `set -e`
+  pf_count="$(printf '%s\n' "$per_file_current" | grep -c . || true)"
+fi
+pf_noun="files"
+if [[ "$pf_count" -eq 1 ]]; then
+  pf_noun="file"
+fi
+begin_group "Per-File Coverage (${pf_count} ${pf_noun})"
+if [[ -n "$per_file_current" ]]; then
   while IFS=' ' read -r pf_path pf_hit pf_found; do
     pf_pct="$(coverage_pct "$pf_hit" "$pf_found")"
     pf_pct_fmt="$(format_pct "$pf_pct")"
-    echo "  ${pf_path}: ${pf_pct_fmt}% (${pf_hit}/${pf_found})"
+    echo "  ${pf_path} — ${pf_pct_fmt}% (${pf_hit}/${pf_found})"
   done <<< "$per_file_current"
 fi
+end_group
 
 # ---------------------------------------------------------------------------
 # Summary-only mode
@@ -181,7 +197,7 @@ echo ""
 echo "-- Overall Ratchet Check --"
 if compare_floats "$cur_pct" "lt" "$base_pct"; then
   msg="Overall coverage decreased: ${cur_pct_fmt}% < ${base_pct_fmt}%"
-  echo "  FAIL: $msg"
+  emit_annotation error "$annotation_title" "$msg"
   failure_messages+=("$msg")
   failed=true
 else
@@ -236,7 +252,7 @@ if [[ -n "$INPUT_BASE_REF" ]]; then
   echo "-- New File Coverage Check (minimum: ${INPUT_NEW_FILE_MINIMUM_COVERAGE}%) --"
 
   new_files="$(git diff --name-only --diff-filter=A "${INPUT_BASE_REF}" "${INPUT_HEAD_REF}" -- "${pathspec_args[@]}" 2>&1)" || {
-    echo "::warning::Failed to detect new files via git diff. Ensure the repository is cloned with sufficient history (fetch-depth: 0 in actions/checkout) or that the base/head refs are accessible."
+    emit_annotation warning "$annotation_title" "Failed to detect new files via git diff. Ensure the repository is cloned with sufficient history (fetch-depth: 0 in actions/checkout) or that the base/head refs are accessible."
     new_files=""
   }
 
@@ -270,11 +286,17 @@ if [[ -n "$INPUT_BASE_REF" ]]; then
         # Not found in LCOV at all → 0%
         nf_pct="0"
         nf_pct_fmt="0.00"
-        msg="New file \`${nf}\` not found in LCOV data (0% coverage, minimum: ${INPUT_NEW_FILE_MINIMUM_COVERAGE}%)"
-        echo "  FAIL: $msg"
-        failure_messages+=("$msg")
-        failed=true
-        new_file_results+="| \`${nf}\` | ${nf_pct_fmt}% | 0/0 | FAIL |\n"
+        if compare_floats "$nf_pct" "lt" "$INPUT_NEW_FILE_MINIMUM_COVERAGE"; then
+          msg="New file \`${nf}\` not found in LCOV data (0% coverage, minimum: ${INPUT_NEW_FILE_MINIMUM_COVERAGE}%)"
+          echo "  FAIL: ${nf}"
+          emit_annotation error "$annotation_title" "New file has no coverage data (0.00% < ${INPUT_NEW_FILE_MINIMUM_COVERAGE}% minimum)" "$nf"
+          failure_messages+=("$msg")
+          failed=true
+          new_file_results+="| \`${nf}\` | ${nf_pct_fmt}% | 0/0 | FAIL |\n"
+        else
+          echo "  PASS: ${nf} — not found in LCOV data (${nf_pct_fmt}% >= ${INPUT_NEW_FILE_MINIMUM_COVERAGE}%)"
+          new_file_results+="| \`${nf}\` | ${nf_pct_fmt}% | 0/0 | PASS |\n"
+        fi
       elif [[ "$nf_found" == "0" ]]; then
         # No instrumentable lines → PASS
         echo "  PASS: ${nf} — no instrumentable lines (LF:0)"
@@ -284,7 +306,8 @@ if [[ -n "$INPUT_BASE_REF" ]]; then
         nf_pct_fmt="$(format_pct "$nf_pct")"
         if compare_floats "$nf_pct" "lt" "$INPUT_NEW_FILE_MINIMUM_COVERAGE"; then
           msg="New file \`${nf}\` has ${nf_pct_fmt}% coverage (minimum: ${INPUT_NEW_FILE_MINIMUM_COVERAGE}%)"
-          echo "  FAIL: $msg"
+          echo "  FAIL: ${nf}"
+          emit_annotation error "$annotation_title" "New file coverage ${nf_pct_fmt}% is below the ${INPUT_NEW_FILE_MINIMUM_COVERAGE}% minimum" "$nf"
           failure_messages+=("$msg")
           failed=true
           new_file_results+="| \`${nf}\` | ${nf_pct_fmt}% | ${nf_hit}/${nf_found} | FAIL |\n"
@@ -304,7 +327,7 @@ if [[ "$INPUT_CHANGED_FILE_NO_DECREASE" == "true" && -n "$INPUT_BASE_REF" ]]; th
   echo "-- Changed File Ratchet Check --"
 
   modified_files="$(git diff --name-only --diff-filter=M "${INPUT_BASE_REF}" "${INPUT_HEAD_REF}" -- "${pathspec_args[@]}" 2>&1)" || {
-    echo "::warning::Failed to detect modified files via git diff. Ensure the repository is cloned with sufficient history (fetch-depth: 0 in actions/checkout) or that the base/head refs are accessible."
+    emit_annotation warning "$annotation_title" "Failed to detect modified files via git diff. Ensure the repository is cloned with sufficient history (fetch-depth: 0 in actions/checkout) or that the base/head refs are accessible."
     modified_files=""
   }
 
@@ -367,7 +390,8 @@ if [[ "$INPUT_CHANGED_FILE_NO_DECREASE" == "true" && -n "$INPUT_BASE_REF" ]]; th
 
       if compare_floats "$mf_cur_pct" "lt" "$mf_base_pct"; then
         msg="Modified file \`${mf}\` coverage decreased: ${mf_cur_pct_fmt}% < ${mf_base_pct_fmt}%"
-        echo "  FAIL: $msg"
+        echo "  FAIL: ${mf}"
+        emit_annotation error "$annotation_title" "Coverage decreased from ${mf_base_pct_fmt}% to ${mf_cur_pct_fmt}%" "$mf"
         failure_messages+=("$msg")
         failed=true
         changed_file_results+="| \`${mf}\` | ${mf_base_pct_fmt}% | ${mf_cur_pct_fmt}% | FAIL |\n"
@@ -526,7 +550,7 @@ ${page_response}")"
     if [[ "$section_verified" == "true" ]]; then
       echo "  Updated existing PR comment (ID: ${existing_comment_id})"
     else
-      echo "::warning::PR comment updated but section verification failed after ${max_retries} retries (possible concurrent update conflict)"
+      emit_annotation warning "$annotation_title" "PR comment updated but section verification failed after ${max_retries} retries (possible concurrent update conflict)"
       echo "  Updated existing PR comment (ID: ${existing_comment_id}) — verification failed"
     fi
   else
