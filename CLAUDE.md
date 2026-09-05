@@ -36,8 +36,9 @@ Tests live in `test/tests/*.sh` (15 files, 77 tests, 217 assertions). They are *
   `file=<path>,line=1`, while repo-wide failures (the overall ratchet, input validation) pass no file.
   Collapsible log groups go through `begin_group`/`end_group`; only the per-file listing is grouped.
 - Console failure output must not duplicate the annotation. A per-file failure (new-file, changed-file) prints
-  the bare, two-space-indented path on its own line (`  <path>`, no `FAIL:` prefix, no trailing colon) immediately
-  before its `emit_annotation` call; a repo-wide failure (the overall ratchet) prints nothing before its
-  annotation. The full message is still recorded in `failure_messages` and replayed by the final `Result: FAIL`
-  block, the step summary and the PR comment. The bare path has no trailing colon, so it cannot match a
-  `path: message` problem matcher (see the note above).
+  `  FAIL: <path>` on its own line (mirroring the `  PASS: <path> — …` lines) immediately before its
+  `emit_annotation` call; a repo-wide failure (the overall ratchet) prints nothing before its annotation. The
+  full message is still recorded in `failure_messages` and replayed by the final `Result: FAIL` block, the step
+  summary and the PR comment. The path stays at the end of the line with no trailing colon, so `FAIL: <path>`
+  cannot match a `path: message` problem matcher (see the note above) — the colon after `FAIL` isn't followed by
+  a `.ext`-shaped prefix.

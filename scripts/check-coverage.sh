@@ -288,7 +288,7 @@ if [[ -n "$INPUT_BASE_REF" ]]; then
         nf_pct_fmt="0.00"
         if compare_floats "$nf_pct" "lt" "$INPUT_NEW_FILE_MINIMUM_COVERAGE"; then
           msg="New file \`${nf}\` not found in LCOV data (0% coverage, minimum: ${INPUT_NEW_FILE_MINIMUM_COVERAGE}%)"
-          echo "  ${nf}"
+          echo "  FAIL: ${nf}"
           emit_annotation error "$annotation_title" "New file has no coverage data (0.00% < ${INPUT_NEW_FILE_MINIMUM_COVERAGE}% minimum)" "$nf"
           failure_messages+=("$msg")
           failed=true
@@ -306,7 +306,7 @@ if [[ -n "$INPUT_BASE_REF" ]]; then
         nf_pct_fmt="$(format_pct "$nf_pct")"
         if compare_floats "$nf_pct" "lt" "$INPUT_NEW_FILE_MINIMUM_COVERAGE"; then
           msg="New file \`${nf}\` has ${nf_pct_fmt}% coverage (minimum: ${INPUT_NEW_FILE_MINIMUM_COVERAGE}%)"
-          echo "  ${nf}"
+          echo "  FAIL: ${nf}"
           emit_annotation error "$annotation_title" "New file coverage ${nf_pct_fmt}% is below the ${INPUT_NEW_FILE_MINIMUM_COVERAGE}% minimum" "$nf"
           failure_messages+=("$msg")
           failed=true
@@ -390,7 +390,7 @@ if [[ "$INPUT_CHANGED_FILE_NO_DECREASE" == "true" && -n "$INPUT_BASE_REF" ]]; th
 
       if compare_floats "$mf_cur_pct" "lt" "$mf_base_pct"; then
         msg="Modified file \`${mf}\` coverage decreased: ${mf_cur_pct_fmt}% < ${mf_base_pct_fmt}%"
-        echo "  ${mf}"
+        echo "  FAIL: ${mf}"
         emit_annotation error "$annotation_title" "Coverage decreased from ${mf_base_pct_fmt}% to ${mf_cur_pct_fmt}%" "$mf"
         failure_messages+=("$msg")
         failed=true

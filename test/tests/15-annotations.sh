@@ -139,10 +139,10 @@ fi
 
 # Confirm this run actually exercises a bare-path FAIL line — otherwise the
 # matcher-shape check above would trivially pass on an empty case.
-if echo "$output" | grep -qE '^  lib/src/widget_a\.dart$'; then
+if echo "$output" | grep -qE '^  FAIL: lib/src/widget_a\.dart$'; then
   pass "this run does exercise a bare-path FAIL line (matcher-safety check is non-vacuous)"
 else
-  fail "expected bare path line '  lib/src/widget_a.dart' not found"
+  fail "expected bare path line '  FAIL: lib/src/widget_a.dart' not found"
   echo "  Output: $output"
 fi
 
@@ -239,12 +239,13 @@ else
   echo "  Output: $output"
 fi
 
-# Console line is the bare, indented path — no "FAIL:" prefix, no trailing
-# colon (which would make it match a setup-go-style problem matcher).
-if echo "$output" | grep -qE '^  lib/src/new_widget\.dart$'; then
-  pass "new-file-below-minimum prints the bare, indented path with no FAIL: prefix"
+# Console line is "  FAIL: <path>" — mirrors the PASS lines' format, with the
+# path at end-of-line and no trailing colon (which would make it match a
+# setup-go-style problem matcher).
+if echo "$output" | grep -qE '^  FAIL: lib/src/new_widget\.dart$'; then
+  pass "new-file-below-minimum prints '  FAIL: <path>' with the path at end-of-line"
 else
-  fail "expected bare path line '  lib/src/new_widget.dart' not found"
+  fail "expected bare path line '  FAIL: lib/src/new_widget.dart' not found"
   echo "  Output: $output"
 fi
 
@@ -281,12 +282,13 @@ else
   echo "  Output: $output"
 fi
 
-# Console line is the bare, indented path — no "FAIL:" prefix, no trailing
-# colon (which would make it match a setup-go-style problem matcher).
-if echo "$output" | grep -qE '^  lib/src/unknown_widget\.dart$'; then
-  pass "new-file-not-in-LCOV prints the bare, indented path with no FAIL: prefix"
+# Console line is "  FAIL: <path>" — mirrors the PASS lines' format, with the
+# path at end-of-line and no trailing colon (which would make it match a
+# setup-go-style problem matcher).
+if echo "$output" | grep -qE '^  FAIL: lib/src/unknown_widget\.dart$'; then
+  pass "new-file-not-in-LCOV prints '  FAIL: <path>' with the path at end-of-line"
 else
-  fail "expected bare path line '  lib/src/unknown_widget.dart' not found"
+  fail "expected bare path line '  FAIL: lib/src/unknown_widget.dart' not found"
   echo "  Output: $output"
 fi
 
@@ -331,23 +333,26 @@ else
   echo "  Output: $output"
 fi
 
-# Console line is the bare, indented path — no "FAIL:" prefix, no trailing
-# colon (which would make it match a setup-go-style problem matcher).
-if echo "$output" | grep -qE '^  lib/src/widget_a\.dart$'; then
-  pass "changed-file FAIL prints the bare, indented path with no FAIL: prefix"
+# Console line is "  FAIL: <path>" — mirrors the PASS lines' format, with the
+# path at end-of-line and no trailing colon (which would make it match a
+# setup-go-style problem matcher).
+if echo "$output" | grep -qE '^  FAIL: lib/src/widget_a\.dart$'; then
+  pass "changed-file FAIL prints '  FAIL: <path>' with the path at end-of-line"
 else
-  fail "expected bare path line '  lib/src/widget_a.dart' not found"
+  fail "expected bare path line '  FAIL: lib/src/widget_a.dart' not found"
   echo "  Output: $output"
 fi
 
 # This run fails BOTH the overall ratchet (no associated file) and the
-# changed-file check (has an associated file). The overall failure's console
-# echo was removed entirely — it must not print a bare-path line of its own,
-# and no console line anywhere should carry the old "FAIL:" prefix.
-if echo "$output" | grep -qF "FAIL:"; then
-  fail "console output should not contain any 'FAIL:' prefixed line"
+# changed-file check (has an associated file). The overall ratchet still
+# prints nothing before its annotation, so exactly ONE "  FAIL: " console
+# line should appear in this run — the changed-file one.
+fail_line_count="$(grep -c '^  FAIL: ' <<< "$output" || true)"
+if [[ "$fail_line_count" -eq 1 ]]; then
+  pass "exactly one '  FAIL: ' console line appears (the overall ratchet contributes none)"
 else
-  pass "console output contains no 'FAIL:' prefixed lines, even with two failures"
+  fail "expected exactly one '  FAIL: ' console line, got ${fail_line_count}"
+  echo "  Output: $output"
 fi
 
 cleanup_git_repo "$tmpdir"
